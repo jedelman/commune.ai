@@ -1,6 +1,8 @@
-import { Bar, BarChart, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { lazy, Suspense } from "react";
 import type { PersonaInput, PersonaResult } from "../lib/model";
 import { money } from "../lib/model";
+
+const BeforeAfterChart = lazy(() => import("./BeforeAfterChart"));
 
 interface Props {
   input: PersonaInput;
@@ -25,10 +27,6 @@ function NumInput({ label, value, step, onChange }: { label: string; value: numb
 
 export function PersonaCard({ input, result, onChange }: Props) {
   const better = result.net_annual >= 0;
-  const chartData = [
-    { name: "Now", value: Math.round(result.before_total) },
-    { name: "In the commune", value: Math.round(result.after_total) },
-  ];
 
   return (
     <article className="persona">
@@ -46,18 +44,9 @@ export function PersonaCard({ input, result, onChange }: Props) {
       )}
 
       <div className="chart" aria-label="annual outlay, now vs in the commune">
-        <ResponsiveContainer width="100%" height={140}>
-          <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-            <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-            <YAxis hide />
-            <ReferenceLine y={0} stroke="#888" />
-            <Tooltip formatter={(v: number) => money(v)} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
-            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-              <Cell fill="#b4543a" />
-              <Cell fill={better ? "#2f7d54" : "#b4543a"} />
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        <Suspense fallback={<div className="chart-skel" style={{ height: 140 }} />}>
+          <BeforeAfterChart beforeTotal={result.before_total} afterTotal={result.after_total} better={better} />
+        </Suspense>
         <div className="chart-cap muted">annual housing + care outlay (lower is better)</div>
       </div>
 
