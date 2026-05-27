@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "commune-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-05-01",
+  // Serve the built frontend; the Worker only intercepts /ws and /api/*.
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "WORLD", "class_name": "World" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["World"] }],
+  // Append-only governance/event ledger. Local dev uses a local sqlite file; replace the id
+  // with the real one (from `wrangler d1 create` / the MCP) before deploying.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "commune-events",
+      "database_id": "REPLACE_WITH_REAL_ID"
+    }
+  ]
+}

@@ -353,6 +353,186 @@ pub fn compute_personas(batch: JsValue) -> Result<JsValue, JsValue> {
     Ok(serde_wasm_bindgen::to_value(&out)?)
 }
 
+// ───────────────────────────── 6. Federation / World (multiplayer sim) ─────────────────────────────
+// The whole world is one deterministic document. `evaluate_world` is pure: given the shared doc
+// (nodes + their role-governed dials + players' public state), it returns everyone's number, each
+// node's clearing position, the Bancor carrying charges, and the federation reserve flow. The
+// Durable Object owns the doc and serializes writes; every client runs THIS function over the same
+// doc, so all tabs agree without server-side compute. The cascade is structural: a player's
+// rolled-in equity IS part of their node's capital stack, so one governance change moves everyone.
+
+/// Dials owned by governance roles (capital-stack role + federation role).
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Governance {
+    pub internal_rent_monthly: f64, // capital-stack role
+    pub bond_rate: f64,             // capital-stack role
+    pub mortgage_rate: f64,         // capital-stack role
+    pub commercial_rent_monthly: f64,
+    pub compression_floor: f64,     // federation role: CC/hr for care/unskilled (the egalitarian floor)
+    pub compression_cap_mult: f64,  // specialized cap = floor × mult (politics, not the unit)
+    pub demurrage_rate: f64,        // federation role: /yr on positive CC balances
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct WorldNode {
+    pub id: String,
+    pub name: String,
+    /// Fixed-ish asset facts (purchase, reno, tax/maint, units, enterprise recapture, building share).
+    /// member_bonds / member_equity here are IGNORED — they're derived from the players who joined.
+    pub config: NodeConfig,
+    pub governance: Governance,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct WorldPlayer {
+    pub id: String,
+    pub handle: String,
+    pub node_id: String,
+    pub persona: PersonaInput,
+    pub equity_buyin: f64, // limited-equity share contributed to the node
+    pub cc_balance: f64,   // mutual-credit balance carried into the period
+}
+
+/// Symmetric Bancor bands as fractions of a node's quota (annual internal turnover).
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ClearingBands {
+    pub band1: f64, // within this: 0%
+    pub rate1: f64, // beyond band1
+    pub band2: f64,
+    pub rate2: f64, // beyond band2
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct WorldDoc {
+    pub nodes: Vec<WorldNode>,
+    pub players: Vec<WorldPlayer>,
+    pub reserve: f64,
+    pub bands: ClearingBands,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct NodeEval {
+    pub id: String,
+    pub name: String,
+    pub members: u32,
+    pub committed_bonds: f64,  // Σ rolled-in home equity
+    pub committed_equity: f64, // Σ limited-equity buy-ins
+    pub node_result: NodeResult,
+    pub clears: bool,          // node net (asset + enterprise) ≥ 0
+    pub quota: f64,            // annual internal turnover (Bancor quota)
+    pub clearing_balance: f64, // surplus(+)/deficit(−) position vs the union
+    pub carrying_charge: f64,  // symmetric Bancor charge → reserve
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PlayerEval {
+    pub id: String,
+    pub handle: String,
+    pub node_id: String,
+    pub persona: PersonaResult,
+    pub demurrage: f64, // CC charged on a positive balance this period
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct WorldEval {
+    pub nodes: Vec<NodeEval>,
+    pub players: Vec<PlayerEval>,
+    pub reserve: f64,            // after this period's carrying charges flow in
+    pub carrying_charges: f64,   // total Bancor charges collected
+    pub federation_clears: bool, // every node clears AND reserve stays non-negative
+}
+
+pub fn evaluate_world(doc: &WorldDoc) -> WorldEval {
+    let mut node_evals: Vec<NodeEval> = Vec::new();
+    let mut carrying_charges = 0.0;
+
+    for n in &doc.nodes {
+        let members: Vec<&WorldPlayer> = doc.players.iter().filter(|p| p.node_id == n.id).collect();
+        let committed_bonds: f64 = members.iter().map(|p| p.persona.home_equity).sum();
+        let committed_equity: f64 = members.iter().map(|p| p.equity_buyin).sum();
+
+        // Effective config: players capitalize the node; governance sets the rates/rent.
+        let cfg = NodeConfig {
+            member_bonds: committed_bonds,
+            member_equity: committed_equity,
+            bond_rate: n.governance.bond_rate,
+            mortgage_rate: n.governance.mortgage_rate,
+            internal_rent_monthly: n.governance.internal_rent_monthly,
+            commercial_rent_monthly: n.governance.commercial_rent_monthly,
+            ..n.config.clone()
+        };
+        let node_result = compute(&cfg);
+
+        let quota = node_result.income_total.max(1.0);
+        let clearing_balance = node_result.node_net_with_enterprise;
+        // Symmetric carrying charge on |balance| relative to quota — both surplus and deficit pay.
+        let ratio = (clearing_balance / quota).abs();
+        let charge = if ratio > doc.bands.band2 {
+            clearing_balance.abs() * doc.bands.rate2
+        } else if ratio > doc.bands.band1 {
+            clearing_balance.abs() * doc.bands.rate1
+        } else {
+            0.0
+        };
+        carrying_charges += charge;
+
+        node_evals.push(NodeEval {
+            id: n.id.clone(),
+            name: n.name.clone(),
+            members: members.len() as u32,
+            committed_bonds,
+            committed_equity,
+            clears: node_result.node_net_with_enterprise >= 0.0,
+            quota,
+            clearing_balance,
+            carrying_charge: charge,
+            node_result,
+        });
+    }
+
+    let mut player_evals: Vec<PlayerEval> = Vec::new();
+    for p in &doc.players {
+        let gov = doc
+            .nodes
+            .iter()
+            .find(|n| n.id == p.node_id)
+            .map(|n| &n.governance);
+        let (internal_rent, bond_rate, floor, demurrage_rate) = match gov {
+            Some(g) => (g.internal_rent_monthly, g.bond_rate, g.compression_floor, g.demurrage_rate),
+            None => (0.0, 0.0, 0.0, 0.0),
+        };
+        let params = PersonaParams {
+            internal_rent_monthly: internal_rent,
+            bond_rate,
+            labor_credit_per_hour: floor,
+        };
+        player_evals.push(PlayerEval {
+            id: p.id.clone(),
+            handle: p.handle.clone(),
+            node_id: p.node_id.clone(),
+            persona: compute_persona(&p.persona, &params),
+            demurrage: p.cc_balance.max(0.0) * demurrage_rate,
+        });
+    }
+
+    let reserve = doc.reserve + carrying_charges;
+    let federation_clears = node_evals.iter().all(|n| n.clears) && reserve >= 0.0;
+
+    WorldEval {
+        nodes: node_evals,
+        players: player_evals,
+        reserve,
+        carrying_charges,
+        federation_clears,
+    }
+}
+
+#[wasm_bindgen]
+pub fn evaluate_world_doc(doc: JsValue) -> Result<JsValue, JsValue> {
+    let d: WorldDoc = serde_wasm_bindgen::from_value(doc)?;
+    Ok(serde_wasm_bindgen::to_value(&evaluate_world(&d))?)
+}
+
 // ───────────────────────────── tests ─────────────────────────────
 
 #[cfg(test)]
@@ -457,5 +637,79 @@ mod tests {
         // $35k bond yield + care credit, against a higher internal rent than their cheap carry.
         assert!(r.after_total < 0.0); // yield + credit outweigh rent
         assert!(r.net_annual > 0.0);
+    }
+
+    fn demo_world() -> WorldDoc {
+        let gov = Governance {
+            internal_rent_monthly: 1_200.0,
+            bond_rate: 0.05,
+            mortgage_rate: 0.065,
+            commercial_rent_monthly: 3_000.0,
+            compression_floor: 25.0,
+            compression_cap_mult: 2.0,
+            demurrage_rate: 0.05,
+        };
+        let base = NodeConfig {
+            purchase_price: 2_000_000.0,
+            renovation: 300_000.0,
+            member_bonds: 0.0,  // derived from players
+            bond_rate: 0.05,
+            member_equity: 0.0, // derived from players
+            mortgage_rate: 0.065,
+            mortgage_term_years: 30,
+            units: 8,
+            internal_rent_monthly: 1_200.0,
+            commercial_rent_monthly: 3_000.0,
+            tax_ins_maint: 56_000.0,
+            enterprise_recapture: 62_000.0,
+            building_share: 0.80,
+        };
+        WorldDoc {
+            nodes: vec![WorldNode { id: "n1".into(), name: "Node #1".into(), config: base, governance: gov }],
+            players: vec![WorldPlayer {
+                id: "p1".into(),
+                handle: "couple".into(),
+                node_id: "n1".into(),
+                persona: PersonaInput {
+                    kind: PersonaKind::MatureCouple,
+                    current_housing_monthly: 1_000.0,
+                    home_equity: 700_000.0,
+                    childcare_monthly: 0.0,
+                    labor_hours_monthly: 8.0,
+                    business_bleed_annual: 0.0,
+                },
+                equity_buyin: 200_000.0,
+                cc_balance: 10_000.0,
+            }],
+            reserve: 50_000.0,
+            bands: ClearingBands { band1: 0.25, rate1: 0.01, band2: 0.50, rate2: 0.02 },
+        }
+    }
+
+    #[test]
+    fn world_derives_capital_stack_from_players() {
+        let w = demo_world();
+        let e = evaluate_world(&w);
+        let n = &e.nodes[0];
+        // The single couple's $700k equity + $200k buy-in IS the node's bond + equity stack.
+        assert!((n.committed_bonds - 700_000.0).abs() < 1.0);
+        assert!((n.committed_equity - 200_000.0).abs() < 1.0);
+        assert!((n.node_result.mortgage_principal - 1_400_000.0).abs() < 1.0);
+        assert_eq!(e.players.len(), 1);
+        assert!((e.players[0].demurrage - 500.0).abs() < 1.0); // 5% of $10k positive balance
+    }
+
+    #[test]
+    fn governance_change_cascades_to_node_and_players() {
+        let base = demo_world();
+        let before = evaluate_world(&base);
+
+        // Capital-stack role drops internal rent: members better off, node clears worse.
+        let mut cheaper = demo_world();
+        cheaper.nodes[0].governance.internal_rent_monthly = 600.0;
+        let after = evaluate_world(&cheaper);
+
+        assert!(after.players[0].persona.net_annual > before.players[0].persona.net_annual);
+        assert!(after.nodes[0].node_result.asset_layer_net < before.nodes[0].node_result.asset_layer_net);
     }
 }
