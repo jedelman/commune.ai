@@ -422,10 +422,23 @@ pub struct WorldDoc {
     pub txs: Vec<Tx>, // the mutual-credit ledger (append-only event stream)
     #[serde(default)]
     pub period: u32, // sim periods (≈ months) advanced by the world's heartbeat
+    #[serde(default)]
+    pub facility: f64, // federation capital pool (fiat) — the redemption float
+    #[serde(default)]
+    pub facility_holdings: Vec<FacilityHolding>, // capital the facility holds per node
 }
 
 /// The federation reserve's ledger account id (Bancor clearing charges accrue here).
 pub const FED_ACCOUNT: &str = "fed";
+
+/// Capital the redemption facility holds in a node after buying out an exiting member. It keeps
+/// the node's capital stack intact (the facility stands in for the departed member) until a new
+/// member buys in and the facility re-issues the stake to them.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct FacilityHolding {
+    pub node_id: String,
+    pub amount: f64,
+}
 
 const MS_PER_YEAR: f64 = 365.25 * 24.0 * 3600.0 * 1000.0;
 
@@ -481,8 +494,9 @@ pub struct NodeEval {
     pub clearing_balance: f64, // surplus(+)/deficit(−) position vs the union
     pub carrying_charge: f64,  // symmetric Bancor charge → reserve
     pub pool_balance: f64,     // the node pool's CC position (derived from the ledger)
-    pub member_capital: f64,   // bonds + equity put in by members
+    pub member_capital: f64,   // members' + facility-held capital
     pub capital_ratio: f64,    // member_capital / project cost (rest is mortgage)
+    pub facility_held: f64,    // capital the redemption facility holds in this node
 }
 
 #[derive(Serialize, Deserialize)]
@@ -521,6 +535,9 @@ pub struct SystemStats {
     pub committed_equity: f64,    // Σ limited-equity buy-ins
     pub total_mortgage: f64,
     pub aggregate_node_net: f64,
+    // Redemption facility (federation capital pool).
+    pub facility_cash: f64,       // float available to buy out exiting stakes
+    pub facility_capital_held: f64, // capital it currently holds across nodes
 }
 
 #[derive(Serialize, Deserialize)]
@@ -543,11 +560,18 @@ pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
         let members: Vec<&WorldPlayer> = doc.players.iter().filter(|p| p.node_id == n.id).collect();
         let committed_bonds: f64 = members.iter().map(|p| p.persona.home_equity).sum();
         let committed_equity: f64 = members.iter().map(|p| p.equity_buyin).sum();
+        // Facility-held capital keeps the stack intact after a member redeems out.
+        let facility_held: f64 = doc
+            .facility_holdings
+            .iter()
+            .filter(|h| h.node_id == n.id)
+            .map(|h| h.amount)
+            .sum();
 
-        // Effective config: players capitalize the node; governance sets the rates/rent.
+        // Effective config: players (+ the facility) capitalize the node; governance sets rates/rent.
         let cfg = NodeConfig {
             member_bonds: committed_bonds,
-            member_equity: committed_equity,
+            member_equity: committed_equity + facility_held,
             bond_rate: n.governance.bond_rate,
             mortgage_rate: n.governance.mortgage_rate,
             internal_rent_monthly: n.governance.internal_rent_monthly,
@@ -569,7 +593,7 @@ pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
         };
         carrying_charges += charge;
 
-        let member_capital = committed_bonds + committed_equity;
+        let member_capital = committed_bonds + committed_equity + facility_held;
         let project_cost = n.config.purchase_price + n.config.renovation;
         let capital_ratio = if project_cost > 0.0 { member_capital / project_cost } else { 0.0 };
 
@@ -586,6 +610,7 @@ pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
             pool_balance,
             member_capital,
             capital_ratio,
+            facility_held,
             node_result,
         });
     }
@@ -669,6 +694,8 @@ pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
         committed_equity: node_evals.iter().map(|n| n.committed_equity).sum(),
         total_mortgage: node_evals.iter().map(|n| n.node_result.mortgage_principal).sum(),
         aggregate_node_net: node_evals.iter().map(|n| n.node_result.node_net_with_enterprise).sum(),
+        facility_cash: doc.facility,
+        facility_capital_held: doc.facility_holdings.iter().map(|h| h.amount).sum(),
     };
 
     WorldEval {
@@ -839,6 +866,8 @@ mod tests {
             bands: ClearingBands { band1: 0.25, rate1: 0.01, band2: 0.50, rate2: 0.02 },
             txs: vec![],
             period: 0,
+            facility: 0.0,
+            facility_holdings: vec![],
         }
     }
 
@@ -894,5 +923,25 @@ mod tests {
         w.txs.push(Tx { ts_ms: 0.0, from: "n1".into(), to: FED_ACCOUNT.into(), amount: 200.0 });
         let funded = evaluate_world(&w, one_year);
         assert!((funded.reserve - 50_200.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn facility_held_capital_keeps_the_node_stack_intact() {
+        let w = demo_world();
+        let base = evaluate_world(&w, 0.0);
+        let member_cap = base.nodes[0].member_capital; // 700k bond + 200k equity buy-in
+
+        // Member redeems out: their stake leaves, but the facility now holds it for the node.
+        let mut redeemed = demo_world();
+        redeemed.players[0].persona.home_equity = 0.0;
+        redeemed.players[0].equity_buyin = 0.0;
+        redeemed.facility_holdings.push(FacilityHolding { node_id: "n1".into(), amount: member_cap });
+        let after = evaluate_world(&redeemed, 0.0);
+
+        // Node capital and mortgage are unchanged — the node wasn't destabilized by the exit.
+        assert!((after.nodes[0].member_capital - member_cap).abs() < 1.0);
+        assert!((after.nodes[0].facility_held - member_cap).abs() < 1.0);
+        assert!((after.nodes[0].node_result.mortgage_principal - base.nodes[0].node_result.mortgage_principal).abs() < 1.0);
+        assert!((after.system.facility_capital_held - member_cap).abs() < 1.0);
     }
 }

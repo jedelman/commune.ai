@@ -58,6 +58,11 @@ export function Dashboard({ world, roles, handleOf }: Props) {
           <Tile label="Total mortgage" value={money(s.total_mortgage)} tone="neg" />
           <Tile label="Aggregate node net" value={money(s.aggregate_node_net)} tone={s.aggregate_node_net >= 0 ? "pos" : "neg"} />
         </div>
+        <div className="tiles" style={{ marginTop: 12 }}>
+          <Tile label="Redemption float" value={money(s.facility_cash)} tone={s.facility_cash > 0 ? "pos" : "neg"} />
+          <Tile label="Facility-held capital" value={money(s.facility_capital_held)} />
+        </div>
+        <p className="muted small">The redemption facility buys exiting stakes (keeping nodes intact) and re-issues them to incoming members. Float gates how much can be redeemed at once.</p>
       </section>
 
       <section>

@@ -59,6 +59,8 @@ function defaultDoc(): WorldDoc {
     txs: [],
     period: 0,
     proposals: [],
+    facility: 1_000_000, // redemption float (seed); funding it further is a federation knob
+    facility_holdings: [],
   };
 }
 
@@ -178,6 +180,20 @@ export class World {
     return b;
   }
 
+  private heldIn(nodeId: string): number {
+    return this.doc.facility_holdings.find((h) => h.node_id === nodeId)?.amount ?? 0;
+  }
+
+  private addFacilityHolding(nodeId: string, delta: number) {
+    const h = this.doc.facility_holdings.find((x) => x.node_id === nodeId);
+    if (h) {
+      h.amount += delta;
+      if (h.amount <= 0.01) this.doc.facility_holdings = this.doc.facility_holdings.filter((x) => x !== h);
+    } else if (delta > 0) {
+      this.doc.facility_holdings.push({ node_id: nodeId, amount: delta });
+    }
+  }
+
   // The heartbeat: each period posts the structural flows to the ledger, so the whole economy
   // runs through mutual credit. Demurrage is handled continuously by the engine between periods.
   private async advancePeriod() {
@@ -239,6 +255,15 @@ export class World {
         };
         if (existing) Object.assign(existing, player);
         else this.doc.players.push(player);
+        // If the facility holds capital here, the new member buys it out — the facility re-issues
+        // the redeemed stake and recovers its float (the Caja Laboral loop).
+        const newStake = player.persona.home_equity + player.equity_buyin;
+        const held = this.heldIn(node_id);
+        if (held > 0 && newStake > 0) {
+          const absorb = Math.min(held, newStake);
+          this.addFacilityHolding(node_id, -absorb);
+          this.doc.facility += absorb;
+        }
         changed = true;
         await this.ensureAlarm(); // start the economy's heartbeat once someone's in
         await this.log("w", sess.pid, "join", { node_id });
@@ -365,6 +390,28 @@ export class World {
         });
         changed = true;
         await this.log("w", sess.pid, "jubilee_propose", { node: me.node_id });
+        break;
+      }
+      case "redeem": {
+        // Exit your capital: the redemption facility buys your stake and holds the node position,
+        // so the node you leave isn't destabilized. Re-buy in elsewhere with the proceeds.
+        const me = this.doc.players.find((p) => p.id === sess.pid);
+        if (!me) break;
+        const stake = (me.persona.home_equity || 0) + (me.equity_buyin || 0);
+        if (stake <= 0) {
+          ws.send(JSON.stringify({ t: "error", message: "no stake to redeem" }));
+          break;
+        }
+        if (this.doc.facility < stake) {
+          ws.send(JSON.stringify({ t: "error", message: "redemption facility lacks liquidity — fund the pool" }));
+          break;
+        }
+        this.doc.facility -= stake;
+        this.addFacilityHolding(me.node_id, stake);
+        me.persona.home_equity = 0;
+        me.equity_buyin = 0;
+        changed = true;
+        await this.log("w", sess.pid, "redeem", { node: me.node_id, amount: stake });
         break;
       }
       case "voteJubilee": {

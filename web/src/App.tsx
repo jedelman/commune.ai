@@ -226,6 +226,11 @@ export default function App() {
                         <div className="cap-row"><span>Bond (loan in)</span><b>{money(myEval.bond_position)}</b><span className="muted small">+{money(myEval.bond_yield)}/yr</span></div>
                         <div className="cap-row"><span>Equity share</span><b>{money(myEval.equity_position)}</b></div>
                         <div className="cap-row total"><span>Your committed capital</span><b>{money(myEval.capital_total)}</b></div>
+                        {myEval.capital_total > 0 && (
+                          <button className="ghost wide-btn" onClick={() => send({ t: "redeem" })}>
+                            Redeem stake → facility ({money(world.system.facility_cash)} float)
+                          </button>
+                        )}
                         {myNode && (
                           <div className="cap-collective muted small">
                             Node total: {money(myNode.member_capital)} member capital ({Math.round(myNode.capital_ratio * 100)}% of project) ·

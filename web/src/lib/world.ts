@@ -44,6 +44,11 @@ export interface Tx {
   amount: number;
 }
 
+export interface FacilityHolding {
+  node_id: string;
+  amount: number;
+}
+
 export interface Proposal {
   id: string;
   kind: "jubilee";
@@ -61,6 +66,8 @@ export interface WorldDoc {
   txs: Tx[];
   period: number;
   proposals: Proposal[];
+  facility: number;
+  facility_holdings: FacilityHolding[];
 }
 
 export type Roles = Record<string, string>;
@@ -79,6 +86,7 @@ export interface NodeEval {
   pool_balance: number;
   member_capital: number;
   capital_ratio: number;
+  facility_held: number;
 }
 
 export interface PlayerEval {
@@ -110,6 +118,8 @@ export interface SystemStats {
   committed_equity: number;
   total_mortgage: number;
   aggregate_node_net: number;
+  facility_cash: number;
+  facility_capital_held: number;
 }
 
 export interface WorldEval {
@@ -148,7 +158,8 @@ export type OutMsg =
   | { t: "labor"; hours: number }
   | { t: "transfer"; to: string; amount: number }
   | { t: "proposeJubilee" }
-  | { t: "voteJubilee"; id: string };
+  | { t: "voteJubilee"; id: string }
+  | { t: "redeem" };
 
 const wsBase = import.meta.env.DEV
   ? "ws://localhost:8787"

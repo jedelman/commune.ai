@@ -73,6 +73,11 @@ export interface Tx {
   amount: number;
 }
 
+export interface FacilityHolding {
+  node_id: string;
+  amount: number;
+}
+
 // A collective ledger action: the debtor requests it, node members vote, the node pool bears it.
 export interface Proposal {
   id: string;
@@ -91,6 +96,8 @@ export interface WorldDoc {
   txs: Tx[];
   period: number;
   proposals: Proposal[];
+  facility: number;
+  facility_holdings: FacilityHolding[];
 }
 
 // roles map: `${nodeId}:capital_stack` -> playerId, and `federation` -> playerId
