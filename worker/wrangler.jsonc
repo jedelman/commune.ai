@@ -3,6 +3,9 @@
   "name": "commune-api",
   "main": "src/index.ts",
   "compatibility_date": "2025-05-01",
+  // Attaches the subdomain (DNS record + cert) on deploy. The zone jason-edelman.org must be
+  // in the same Cloudflare account as the API token.
+  "routes": [{ "pattern": "commune.jason-edelman.org", "custom_domain": true }],
   // Serve the built frontend; the Worker only intercepts /ws and /api/*.
   "assets": {
     "directory": "../web/dist",

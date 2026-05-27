@@ -3,6 +3,7 @@ import {
   FEDERATION_FIELDS,
   type Governance,
   type Roles,
+  type Tx,
   type WorldDoc,
   type WorldNode,
   type WorldPlayer,
@@ -51,6 +52,7 @@ function defaultDoc(): WorldDoc {
     players: [],
     reserve: 50_000,
     bands: { band1: 0.25, rate1: 0.01, band2: 0.5, rate2: 0.02 },
+    txs: [],
   };
 }
 
@@ -156,6 +158,11 @@ export class World {
     return this.doc.nodes.find((n) => n.id === id);
   }
 
+  private pushTx(tx: Tx) {
+    this.doc.txs.push(tx);
+    if (this.doc.txs.length > 5000) this.doc.txs = this.doc.txs.slice(-5000);
+  }
+
   private async onMessage(ws: WebSocket, raw: string) {
     const sess = this.sessions.get(ws);
     if (!sess) return;
@@ -255,6 +262,33 @@ export class World {
         this.roles[`${id}:capital_stack`] = sess.pid; // founder runs the capital stack
         changed = true;
         await this.log("w", sess.pid, "add_node", { id, name });
+        break;
+      }
+      case "labor": {
+        // Log hours → the node pool mints labor credit to you at the compression floor.
+        const me = this.doc.players.find((p) => p.id === sess.pid);
+        const node = me && this.nodeById(me.node_id);
+        if (me && node) {
+          const hours = Math.min(1000, Math.max(0, Number(m.hours) || 0));
+          const amount = hours * node.governance.compression_floor;
+          if (amount > 0) {
+            this.pushTx({ ts_ms: Date.now(), from: node.id, to: sess.pid, amount });
+            changed = true;
+            await this.log("w", sess.pid, "tx_labor", { node: node.id, hours, amount });
+          }
+        }
+        break;
+      }
+      case "transfer": {
+        // Member-to-member mutual-credit transfer (sum stays zero).
+        const to = String(m.to);
+        const amount = Math.min(10_000_000, Math.max(0, Number(m.amount) || 0));
+        const recipient = this.doc.players.find((p) => p.id === to);
+        if (recipient && to !== sess.pid && amount > 0) {
+          this.pushTx({ ts_ms: Date.now(), from: sess.pid, to, amount });
+          changed = true;
+          await this.log("w", sess.pid, "tx_transfer", { to, amount });
+        }
         break;
       }
     }

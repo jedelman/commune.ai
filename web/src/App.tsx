@@ -5,6 +5,7 @@ import {
   PERSONA_LABELS,
   PERSONA_TEMPLATES,
   useWorld,
+  type PlayerEval,
   type WorldEval,
 } from "./lib/world";
 import { NodeCard } from "./components/NodeCard";
@@ -42,9 +43,17 @@ export default function App() {
 
   const { status, doc, roles, pid: me, error, send } = useWorld("main", pid, handle);
 
+  // Wall-clock tick: re-evaluating with a later `now` is the whole "tick" — demurrage erodes
+  // idle balances continuously, no server loop. The ledger is a pure function of (events, now).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const i = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(i);
+  }, []);
+
   const world = useMemo<WorldEval | null>(
-    () => (engineReady && doc ? (evaluate_world_doc(doc) as WorldEval) : null),
-    [engineReady, doc],
+    () => (engineReady && doc ? (evaluate_world_doc(doc, now) as WorldEval) : null),
+    [engineReady, doc, now],
   );
 
   const myPlayer = doc?.players.find((p) => p.id === me) ?? null;
@@ -181,8 +190,20 @@ export default function App() {
                       ))}
                     </tbody>
                   </table>
-                  {myEval.demurrage > 0 && <p className="muted small">Demurrage on your balance: {money(myEval.demurrage)}/yr</p>}
                   <p className="muted small">{myEval.persona.note}</p>
+
+                  <div className="ledger">
+                    <div className="bal">
+                      <span className="muted small">Mutual-credit balance</span>
+                      <b className={myEval.cc_balance >= 0 ? "pos" : "neg"}>{money(myEval.cc_balance)} CC</b>
+                      {myEval.demurrage > 0 && <span className="muted small">eroding {money(myEval.demurrage)}/yr (demurrage)</span>}
+                    </div>
+                    <LaborRow onLog={(h) => send({ t: "labor", hours: h })} />
+                    <TransferRow
+                      members={world.players.filter((p) => p.id !== me)}
+                      onSend={(to, amount) => send({ t: "transfer", to, amount })}
+                    />
+                  </div>
                 </div>
               )}
             </section>
@@ -233,6 +254,36 @@ function NumRow({ label, value, step, onChange }: { label: string; value: number
       <span>{label}</span>
       <input type="number" min={0} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
     </label>
+  );
+}
+
+function LaborRow({ onLog }: { onLog: (hours: number) => void }) {
+  const [hours, setHours] = useState(8);
+  return (
+    <div className="action">
+      <span className="muted small">Log labor</span>
+      <input type="number" min={0} step={1} value={hours} onChange={(e) => setHours(Number(e.target.value))} />
+      <button className="ghost" onClick={() => hours > 0 && onLog(hours)}>mint credit</button>
+    </div>
+  );
+}
+
+function TransferRow({ members, onSend }: { members: PlayerEval[]; onSend: (to: string, amount: number) => void }) {
+  const [to, setTo] = useState("");
+  const [amount, setAmount] = useState(500);
+  if (members.length === 0) return null;
+  return (
+    <div className="action">
+      <span className="muted small">Send CC</span>
+      <select value={to} onChange={(e) => setTo(e.target.value)}>
+        <option value="">to…</option>
+        {members.map((p) => (
+          <option key={p.id} value={p.id}>{p.handle} ({money(p.cc_balance)})</option>
+        ))}
+      </select>
+      <input type="number" min={0} step={50} value={amount} onChange={(e) => setAmount(Number(e.target.value))} />
+      <button className="ghost" onClick={() => to && amount > 0 && onSend(to, amount)}>send</button>
+    </div>
   );
 }
 

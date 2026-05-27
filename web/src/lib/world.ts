@@ -37,11 +37,19 @@ export interface ClearingBands {
   rate2: number;
 }
 
+export interface Tx {
+  ts_ms: number;
+  from: string;
+  to: string;
+  amount: number;
+}
+
 export interface WorldDoc {
   nodes: WorldNode[];
   players: WorldPlayer[];
   reserve: number;
   bands: ClearingBands;
+  txs: Tx[];
 }
 
 export type Roles = Record<string, string>;
@@ -57,6 +65,7 @@ export interface NodeEval {
   quota: number;
   clearing_balance: number;
   carrying_charge: number;
+  pool_balance: number;
 }
 
 export interface PlayerEval {
@@ -64,6 +73,7 @@ export interface PlayerEval {
   handle: string;
   node_id: string;
   persona: PersonaResult;
+  cc_balance: number;
   demurrage: number;
 }
 
@@ -97,7 +107,9 @@ export type OutMsg =
   | { t: "claim"; role: "capital_stack" | "federation"; node_id?: string }
   | { t: "release"; role: "capital_stack" | "federation"; node_id?: string }
   | { t: "governance"; node_id: string; field: string; value: number }
-  | { t: "addNode"; name: string };
+  | { t: "addNode"; name: string }
+  | { t: "labor"; hours: number }
+  | { t: "transfer"; to: string; amount: number };
 
 const wsBase = import.meta.env.DEV
   ? "ws://localhost:8787"

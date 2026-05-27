@@ -390,7 +390,17 @@ pub struct WorldPlayer {
     pub node_id: String,
     pub persona: PersonaInput,
     pub equity_buyin: f64, // limited-equity share contributed to the node
-    pub cc_balance: f64,   // mutual-credit balance carried into the period
+}
+
+/// A mutual-credit transfer: `from` debits, `to` credits, sum ≡ 0. Accounts are player ids or
+/// node ids (a node's pool is a ledger account). This is the only way a balance changes — the
+/// ledger is the append-only stream, never a mutated number.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Tx {
+    pub ts_ms: f64,
+    pub from: String,
+    pub to: String,
+    pub amount: f64,
 }
 
 /// Symmetric Bancor bands as fractions of a node's quota (annual internal turnover).
@@ -408,6 +418,49 @@ pub struct WorldDoc {
     pub players: Vec<WorldPlayer>,
     pub reserve: f64,
     pub bands: ClearingBands,
+    #[serde(default)]
+    pub txs: Vec<Tx>, // the mutual-credit ledger (append-only event stream)
+}
+
+const MS_PER_YEAR: f64 = 365.25 * 24.0 * 3600.0 * 1000.0;
+
+fn decayed(bal: f64, dt_ms: f64, rate: f64) -> f64 {
+    // Demurrage erodes only a POSITIVE running balance (idle credit), never a debt.
+    if bal > 0.0 && rate > 0.0 && dt_ms > 0.0 {
+        bal * (-rate * (dt_ms / MS_PER_YEAR)).exp()
+    } else {
+        bal
+    }
+}
+
+/// Pure, functional-reactive balance: a left-fold over this account's time-ordered ledger entries,
+/// applying continuous demurrage to the positive running balance between events, evaluated at
+/// `now_ms`. Re-running it with a later `now_ms` is the whole "tick" — balances decay in wall-clock
+/// time with no mutation. Returns (balance_now, demurrage_per_year_now).
+pub fn balance_at(txs: &[Tx], account: &str, now_ms: f64, demurrage_rate: f64) -> (f64, f64) {
+    let mut events: Vec<(f64, f64)> = Vec::new();
+    for tx in txs {
+        if tx.to == account {
+            events.push((tx.ts_ms, tx.amount));
+        }
+        if tx.from == account {
+            events.push((tx.ts_ms, -tx.amount));
+        }
+    }
+    if events.is_empty() {
+        return (0.0, 0.0);
+    }
+    events.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut bal = 0.0;
+    let mut t_prev = events[0].0;
+    for (ts, delta) in events {
+        bal = decayed(bal, ts - t_prev, demurrage_rate);
+        bal += delta;
+        t_prev = ts;
+    }
+    bal = decayed(bal, now_ms - t_prev, demurrage_rate);
+    let demurrage_per_year = if bal > 0.0 { bal * demurrage_rate } else { 0.0 };
+    (bal, demurrage_per_year)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -422,6 +475,7 @@ pub struct NodeEval {
     pub quota: f64,            // annual internal turnover (Bancor quota)
     pub clearing_balance: f64, // surplus(+)/deficit(−) position vs the union
     pub carrying_charge: f64,  // symmetric Bancor charge → reserve
+    pub pool_balance: f64,     // the node pool's CC position (derived from the ledger)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -430,7 +484,8 @@ pub struct PlayerEval {
     pub handle: String,
     pub node_id: String,
     pub persona: PersonaResult,
-    pub demurrage: f64, // CC charged on a positive balance this period
+    pub cc_balance: f64, // derived from the ledger at now_ms
+    pub demurrage: f64,  // CC/yr eroding off the current positive balance
 }
 
 #[derive(Serialize, Deserialize)]
@@ -442,11 +497,12 @@ pub struct WorldEval {
     pub federation_clears: bool, // every node clears AND reserve stays non-negative
 }
 
-pub fn evaluate_world(doc: &WorldDoc) -> WorldEval {
+pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
     let mut node_evals: Vec<NodeEval> = Vec::new();
     let mut carrying_charges = 0.0;
 
     for n in &doc.nodes {
+        let pool_balance = balance_at(&doc.txs, &n.id, now_ms, n.governance.demurrage_rate).0;
         let members: Vec<&WorldPlayer> = doc.players.iter().filter(|p| p.node_id == n.id).collect();
         let committed_bonds: f64 = members.iter().map(|p| p.persona.home_equity).sum();
         let committed_equity: f64 = members.iter().map(|p| p.equity_buyin).sum();
@@ -486,11 +542,13 @@ pub fn evaluate_world(doc: &WorldDoc) -> WorldEval {
             quota,
             clearing_balance,
             carrying_charge: charge,
+            pool_balance,
             node_result,
         });
     }
 
     let mut player_evals: Vec<PlayerEval> = Vec::new();
+    let mut total_demurrage = 0.0;
     for p in &doc.players {
         let gov = doc
             .nodes
@@ -506,16 +564,20 @@ pub fn evaluate_world(doc: &WorldDoc) -> WorldEval {
             bond_rate,
             labor_credit_per_hour: floor,
         };
+        let (cc_balance, demurrage) = balance_at(&doc.txs, &p.id, now_ms, demurrage_rate);
+        total_demurrage += demurrage;
         player_evals.push(PlayerEval {
             id: p.id.clone(),
             handle: p.handle.clone(),
             node_id: p.node_id.clone(),
             persona: compute_persona(&p.persona, &params),
-            demurrage: p.cc_balance.max(0.0) * demurrage_rate,
+            cc_balance,
+            demurrage,
         });
     }
 
-    let reserve = doc.reserve + carrying_charges;
+    // Demurrage and Bancor charges both fund the federation reserve (SETUP §4 / Part 9).
+    let reserve = doc.reserve + carrying_charges + total_demurrage;
     let federation_clears = node_evals.iter().all(|n| n.clears) && reserve >= 0.0;
 
     WorldEval {
@@ -528,9 +590,9 @@ pub fn evaluate_world(doc: &WorldDoc) -> WorldEval {
 }
 
 #[wasm_bindgen]
-pub fn evaluate_world_doc(doc: JsValue) -> Result<JsValue, JsValue> {
+pub fn evaluate_world_doc(doc: JsValue, now_ms: f64) -> Result<JsValue, JsValue> {
     let d: WorldDoc = serde_wasm_bindgen::from_value(doc)?;
-    Ok(serde_wasm_bindgen::to_value(&evaluate_world(&d))?)
+    Ok(serde_wasm_bindgen::to_value(&evaluate_world(&d, now_ms))?)
 }
 
 // ───────────────────────────── tests ─────────────────────────────
@@ -679,37 +741,59 @@ mod tests {
                     business_bleed_annual: 0.0,
                 },
                 equity_buyin: 200_000.0,
-                cc_balance: 10_000.0,
             }],
             reserve: 50_000.0,
             bands: ClearingBands { band1: 0.25, rate1: 0.01, band2: 0.50, rate2: 0.02 },
+            txs: vec![],
         }
     }
 
     #[test]
     fn world_derives_capital_stack_from_players() {
         let w = demo_world();
-        let e = evaluate_world(&w);
+        let e = evaluate_world(&w, 0.0);
         let n = &e.nodes[0];
         // The single couple's $700k equity + $200k buy-in IS the node's bond + equity stack.
         assert!((n.committed_bonds - 700_000.0).abs() < 1.0);
         assert!((n.committed_equity - 200_000.0).abs() < 1.0);
         assert!((n.node_result.mortgage_principal - 1_400_000.0).abs() < 1.0);
         assert_eq!(e.players.len(), 1);
-        assert!((e.players[0].demurrage - 500.0).abs() < 1.0); // 5% of $10k positive balance
     }
 
     #[test]
     fn governance_change_cascades_to_node_and_players() {
         let base = demo_world();
-        let before = evaluate_world(&base);
+        let before = evaluate_world(&base, 0.0);
 
         // Capital-stack role drops internal rent: members better off, node clears worse.
         let mut cheaper = demo_world();
         cheaper.nodes[0].governance.internal_rent_monthly = 600.0;
-        let after = evaluate_world(&cheaper);
+        let after = evaluate_world(&cheaper, 0.0);
 
         assert!(after.players[0].persona.net_annual > before.players[0].persona.net_annual);
         assert!(after.nodes[0].node_result.asset_layer_net < before.nodes[0].node_result.asset_layer_net);
+    }
+
+    #[test]
+    fn ledger_credits_decay_with_demurrage_over_time() {
+        let mut w = demo_world();
+        // The node pool credits the couple 10,000 CC for labor at t = 0.
+        w.txs.push(Tx { ts_ms: 0.0, from: "n1".into(), to: "p1".into(), amount: 10_000.0 });
+
+        // At t = 0: balance is the full credit; pool holds the mirror −10,000; sum ≡ 0.
+        let now0 = evaluate_world(&w, 0.0);
+        let p0 = now0.players[0].cc_balance;
+        assert!((p0 - 10_000.0).abs() < 1.0);
+        assert!((now0.nodes[0].pool_balance + p0).abs() < 1.0);
+        assert!((now0.players[0].demurrage - 500.0).abs() < 1.0); // 5%/yr of 10k
+
+        // One year later (demurrage 5%/yr): the idle credit has eroded to ~10k·e^-0.05.
+        let one_year = MS_PER_YEAR;
+        let now1 = evaluate_world(&w, one_year);
+        let p1 = now1.players[0].cc_balance;
+        assert!(p1 < p0);
+        assert!((p1 - 10_000.0 * (-0.05_f64).exp()).abs() < 1.0);
+        // Demurrage funds the reserve, so it sits above the $50k seed.
+        assert!(now1.reserve > 50_000.0);
     }
 }

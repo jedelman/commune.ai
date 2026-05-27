@@ -66,11 +66,19 @@ export interface ClearingBands {
   rate2: number;
 }
 
+export interface Tx {
+  ts_ms: number;
+  from: string;
+  to: string;
+  amount: number;
+}
+
 export interface WorldDoc {
   nodes: WorldNode[];
   players: WorldPlayer[];
   reserve: number;
   bands: ClearingBands;
+  txs: Tx[];
 }
 
 // roles map: `${nodeId}:capital_stack` -> playerId, and `federation` -> playerId

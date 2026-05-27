@@ -221,3 +221,13 @@ body {
 .field-disabled { opacity: 0.55; }
 .field-disabled input[type="range"] { cursor: not-allowed; }
 .fed-gov { position: static; margin-top: 18px; }
+
+.ledger { margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 12px; }
+.bal { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.bal b { font-size: 22px; font-variant-numeric: tabular-nums; }
+.bal b.pos { color: var(--pos); }
+.bal b.neg { color: var(--neg); }
+.action { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
+.action span { flex: none; width: 64px; }
+.action input { width: 80px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; font-size: 13px; text-align: right; }
+.action select { flex: 1; min-width: 0; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; font-size: 13px; }
