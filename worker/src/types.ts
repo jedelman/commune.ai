@@ -71,6 +71,7 @@ export interface Tx {
   from: string;
   to: string;
   amount: number;
+  memo: string;
 }
 
 export interface FacilityHolding {

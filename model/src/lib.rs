@@ -401,6 +401,8 @@ pub struct Tx {
     pub from: String,
     pub to: String,
     pub amount: f64,
+    #[serde(default)]
+    pub memo: String, // rent | labor | bond_yield | clearing | forgiveness | transfer
 }
 
 /// Symmetric Bancor bands as fractions of a node's quota (annual internal turnover).
@@ -901,7 +903,7 @@ mod tests {
     fn ledger_credits_decay_with_demurrage_over_time() {
         let mut w = demo_world();
         // The node pool credits the couple 10,000 CC for labor at t = 0.
-        w.txs.push(Tx { ts_ms: 0.0, from: "n1".into(), to: "p1".into(), amount: 10_000.0 });
+        w.txs.push(Tx { ts_ms: 0.0, from: "n1".into(), to: "p1".into(), amount: 10_000.0, memo: "labor".into() });
 
         // At t = 0: balance is the full credit; pool holds the mirror −10,000; sum ≡ 0.
         let now0 = evaluate_world(&w, 0.0);
@@ -920,7 +922,7 @@ mod tests {
         assert!((now1.reserve - 50_000.0).abs() < 1.0);
 
         // The reserve IS a ledger stock: a Bancor charge posted to the fed account lifts it.
-        w.txs.push(Tx { ts_ms: 0.0, from: "n1".into(), to: FED_ACCOUNT.into(), amount: 200.0 });
+        w.txs.push(Tx { ts_ms: 0.0, from: "n1".into(), to: FED_ACCOUNT.into(), amount: 200.0, memo: "clearing".into() });
         let funded = evaluate_world(&w, one_year);
         assert!((funded.reserve - 50_200.0).abs() < 1.0);
     }

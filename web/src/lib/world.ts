@@ -42,6 +42,7 @@ export interface Tx {
   from: string;
   to: string;
   amount: number;
+  memo: string;
 }
 
 export interface FacilityHolding {
@@ -183,6 +184,11 @@ export function useWorld(room: string, pid: string, handle: string): WorldState 
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
+    if (!room) {
+      setStatus("connecting");
+      setDoc(null);
+      return;
+    }
     const url = `${wsBase}/ws?room=${encodeURIComponent(room)}&pid=${encodeURIComponent(pid)}&handle=${encodeURIComponent(handle)}`;
     const ws = new WebSocket(url);
     wsRef.current = ws;

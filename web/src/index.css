@@ -254,6 +254,23 @@ body {
 .feed-list li span { color: var(--muted); }
 .feed-list li b { font-variant-numeric: tabular-nums; }
 
+/* lobby */
+.lobby { max-width: 540px; margin: 8vh auto 0; padding: 24px; text-align: center; }
+.lobby h1 { font-size: 34px; margin: 0; letter-spacing: -0.02em; }
+.lobby .tag { color: var(--muted); margin: 6px 0 28px; }
+.lobby-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 22px; text-align: left; display: flex; flex-direction: column; gap: 14px; }
+.lobby-join { display: flex; gap: 8px; }
+.lobby-join input { flex: 1; }
+.lobby-card input { padding: 9px 12px; border: 1px solid var(--line); border-radius: 7px; font-size: 15px; width: 100%; }
+.lobby-card .primary { width: auto; margin: 0; padding: 9px 18px; }
+.lobby-suggested { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.chip { background: #eef2f5; border: 1px solid var(--line); border-radius: 14px; padding: 4px 12px; font-size: 13px; cursor: pointer; color: var(--accent); }
+.chip:hover { background: #e2e9ee; }
+.lobby-note { margin-top: 18px; line-height: 1.5; }
+
+.world-code { font-size: 15px; color: var(--accent); font-weight: 500; }
+.memo { font-style: normal; color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; margin-right: 4px; }
+
 /* view toggle */
 .viewtabs { display: flex; gap: 0; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; align-self: center; }
 .viewtabs button { background: var(--card); border: none; padding: 8px 16px; font-size: 13px; cursor: pointer; color: var(--muted); }

@@ -16,6 +16,7 @@ interface Env {
 // One sim "month" of wall-clock time. Each period posts rent + labor + clearing to the ledger.
 const PERIOD_MS = 8_000;
 const FED = "fed"; // federation reserve ledger account
+const SOLIDARITY_RATE = 0.1; // slice of node external income funding the redemption facility
 
 const DEFAULT_GOVERNANCE: Governance = {
   internal_rent_monthly: 1_200,
@@ -198,23 +199,29 @@ export class World {
   // runs through mutual credit. Demurrage is handled continuously by the engine between periods.
   private async advancePeriod() {
     const now = Date.now();
-    // Rent (member → node pool) and labor credit (node pool → member) for everyone.
     for (const p of this.doc.players) {
       const node = this.nodeById(p.node_id);
       if (!node) continue;
       const rent = node.governance.internal_rent_monthly;
       const labor = Math.max(0, p.persona.labor_hours_monthly) * node.governance.compression_floor;
-      if (rent > 0) this.pushTx({ ts_ms: now, from: p.id, to: node.id, amount: rent });
-      if (labor > 0) this.pushTx({ ts_ms: now, from: node.id, to: p.id, amount: labor });
+      // Bond yield reconciles the capital layer with the ledger: the loan return is realized as CC.
+      const bondYield = (Math.max(0, p.persona.home_equity) * node.governance.bond_rate) / 12;
+      if (rent > 0) this.pushTx({ ts_ms: now, from: p.id, to: node.id, amount: rent, memo: "rent" });
+      if (labor > 0) this.pushTx({ ts_ms: now, from: node.id, to: p.id, amount: labor, memo: "labor" });
+      if (bondYield > 0) this.pushTx({ ts_ms: now, from: node.id, to: p.id, amount: bondYield, memo: "bond_yield" });
     }
-    // Inter-node clearing: a symmetric Bancor carrying charge on each node's pool imbalance → reserve.
     for (const node of this.doc.nodes) {
+      // Inter-node clearing: symmetric Bancor carrying charge on pool imbalance → reserve.
       const pool = this.poolBalance(node.id);
       const quota = Math.max(1, node.config.units * node.governance.internal_rent_monthly * 12);
       const ratio = Math.abs(pool) / quota;
       const rate = ratio > this.doc.bands.band2 ? this.doc.bands.rate2 : ratio > this.doc.bands.band1 ? this.doc.bands.rate1 : 0;
-      const charge = (Math.abs(pool) * rate) / 12; // monthly slice of the annual band rate
-      if (charge > 0) this.pushTx({ ts_ms: now, from: node.id, to: FED, amount: charge });
+      const charge = (Math.abs(pool) * rate) / 12;
+      if (charge > 0) this.pushTx({ ts_ms: now, from: node.id, to: FED, amount: charge, memo: "clearing" });
+      // Solidarity levy: a slice of each node's external income (commercial + enterprise) funds the
+      // redemption facility. This is fiat the export sector brings in — it grows the pool.
+      const externalMonthly = node.governance.commercial_rent_monthly + node.config.enterprise_recapture / 12;
+      this.doc.facility += externalMonthly * SOLIDARITY_RATE;
     }
     this.doc.period = (this.doc.period ?? 0) + 1;
     await this.persist();
@@ -352,7 +359,7 @@ export class World {
           const hours = Math.min(1000, Math.max(0, Number(m.hours) || 0));
           const amount = hours * node.governance.compression_floor;
           if (amount > 0) {
-            this.pushTx({ ts_ms: Date.now(), from: node.id, to: sess.pid, amount });
+            this.pushTx({ ts_ms: Date.now(), from: node.id, to: sess.pid, amount, memo: "labor" });
             changed = true;
             await this.log("w", sess.pid, "tx_labor", { node: node.id, hours, amount });
           }
@@ -365,7 +372,7 @@ export class World {
         const amount = Math.min(10_000_000, Math.max(0, Number(m.amount) || 0));
         const recipient = this.doc.players.find((p) => p.id === to);
         if (recipient && to !== sess.pid && amount > 0) {
-          this.pushTx({ ts_ms: Date.now(), from: sess.pid, to, amount });
+          this.pushTx({ ts_ms: Date.now(), from: sess.pid, to, amount, memo: "transfer" });
           changed = true;
           await this.log("w", sess.pid, "tx_transfer", { to, amount });
         }
@@ -426,7 +433,7 @@ export class World {
           const debt = -this.poolBalance(prop.debtor); // current ledger debt (positive)
           if (debt > 0) {
             // The node pool bears it: pool → debtor zeroes the debt; the node absorbs the write-off.
-            this.pushTx({ ts_ms: Date.now(), from: prop.node_id, to: prop.debtor, amount: debt });
+            this.pushTx({ ts_ms: Date.now(), from: prop.node_id, to: prop.debtor, amount: debt, memo: "forgiveness" });
             await this.log("w", prop.debtor, "jubilee_execute", { node: prop.node_id, amount: debt, votes: prop.votes.length });
           }
           this.doc.proposals = this.doc.proposals.filter((p) => p.id !== prop.id);

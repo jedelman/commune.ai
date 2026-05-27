@@ -10,6 +10,7 @@ import {
 } from "./lib/world";
 import { NodeCard } from "./components/NodeCard";
 import { Dashboard } from "./components/Dashboard";
+import { Lobby } from "./components/Lobby";
 
 const BeforeAfterChart = lazy(() => import("./components/BeforeAfterChart"));
 
@@ -42,7 +43,13 @@ export default function App() {
     initEngine().then(() => setEngineReady(true));
   }, []);
 
-  const { status, doc, roles, pid: me, error, send } = useWorld("main", pid, handle);
+  // Which world (ledger) you're in — empty = lobby. Reflected in the URL hash so it's shareable.
+  const [room, setRoom] = useState(() => decodeURIComponent(window.location.hash.replace(/^#w=/, "")));
+  useEffect(() => {
+    window.history.replaceState(null, "", room ? `#w=${encodeURIComponent(room)}` : " ");
+  }, [room]);
+
+  const { status, doc, roles, pid: me, error, send } = useWorld(room, pid, handle);
 
   // Wall-clock tick: re-evaluating with a later `now` is the whole "tick" — demurrage erodes
   // idle balances continuously, no server loop. The ledger is a pure function of (events, now).
@@ -107,11 +114,13 @@ export default function App() {
     return Math.floor(others / 2) + 1;
   };
 
+  if (!room) return <Lobby handle={handle} onHandle={setHandle} onJoin={setRoom} />;
+
   return (
     <div className="app">
       <header className="masthead">
         <div>
-          <h1>commune.ai</h1>
+          <h1>commune.ai <span className="world-code">/{room}</span></h1>
           <p className="tag">Pilot your household. Run an institution. Watch the ecosystem move.</p>
         </div>
         <nav className="viewtabs">
@@ -121,6 +130,7 @@ export default function App() {
         <div className="ident">
           <input value={handle} onChange={(e) => setHandle(e.target.value)} aria-label="your handle" />
           <span className={`dot ${status}`} title={status} />
+          <button className="ghost" onClick={() => setRoom("")}>leave</button>
         </div>
       </header>
 
@@ -321,9 +331,9 @@ export default function App() {
                   <p className="muted small">No transactions yet — the heartbeat starts once someone joins.</p>
                 ) : (
                   <ul className="feed-list">
-                    {doc.txs.slice(-12).reverse().map((tx, i) => (
+                    {doc.txs.slice(-14).reverse().map((tx, i) => (
                       <li key={`${tx.ts_ms}-${i}`}>
-                        <span>{nameOf(tx.from)} → {nameOf(tx.to)}</span>
+                        <span><em className="memo">{tx.memo || "tx"}</em> {nameOf(tx.from)} → {nameOf(tx.to)}</span>
                         <b>{money(tx.amount)} CC</b>
                       </li>
                     ))}
