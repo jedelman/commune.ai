@@ -9,6 +9,7 @@ import {
   type WorldEval,
 } from "./lib/world";
 import { NodeCard } from "./components/NodeCard";
+import { Dashboard } from "./components/Dashboard";
 
 const BeforeAfterChart = lazy(() => import("./components/BeforeAfterChart"));
 
@@ -91,6 +92,8 @@ export default function App() {
   const iRunFed = fedHolder === me;
   const fedNodeId = doc?.nodes[0]?.id ?? "";
 
+  const [view, setView] = useState<"play" | "system">("play");
+
   return (
     <div className="app">
       <header className="masthead">
@@ -98,6 +101,10 @@ export default function App() {
           <h1>commune.ai</h1>
           <p className="tag">Pilot your household. Run an institution. Watch the ecosystem move.</p>
         </div>
+        <nav className="viewtabs">
+          <button className={view === "play" ? "on" : ""} onClick={() => setView("play")}>Play</button>
+          <button className={view === "system" ? "on" : ""} onClick={() => setView("system")}>System</button>
+        </nav>
         <div className="ident">
           <input value={handle} onChange={(e) => setHandle(e.target.value)} aria-label="your handle" />
           <span className={`dot ${status}`} title={status} />
@@ -127,6 +134,9 @@ export default function App() {
             </div>
           </section>
 
+          {view === "system" && <Dashboard world={world} roles={roles} handleOf={handleOf} />}
+
+          {view === "play" && (
           <main className="layout">
             <section className="panel">
               <h2>{joined ? "Your household" : "Join the simulation"}</h2>
@@ -256,6 +266,7 @@ export default function App() {
               </div>
             </section>
           </main>
+          )}
         </>
       )}
 

@@ -238,3 +238,27 @@ body {
 .feed-list li { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--bg); }
 .feed-list li span { color: var(--muted); }
 .feed-list li b { font-variant-numeric: tabular-nums; }
+
+/* view toggle */
+.viewtabs { display: flex; gap: 0; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; align-self: center; }
+.viewtabs button { background: var(--card); border: none; padding: 8px 16px; font-size: 13px; cursor: pointer; color: var(--muted); }
+.viewtabs button.on { background: var(--ink); color: var(--bg); }
+
+/* dashboard */
+.dash section { margin-bottom: 24px; }
+.dash h2 { font-size: 18px; margin: 0 0 10px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 4px; }
+.tile .lbl { font-size: 11px; }
+.tile b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.tile b.pos { color: var(--pos); }
+.tile b.neg { color: var(--neg); }
+
+.dash-table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.dash-table th { text-align: right; font-weight: 500; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.dash-table th:first-child { text-align: left; }
+.dash-table td { text-align: right; padding: 7px 10px; font-variant-numeric: tabular-nums; border-bottom: 1px solid var(--bg); }
+.dash-table td:first-child { text-align: left; font-weight: 600; }
+.dash-table td.pos { color: var(--pos); }
+.dash-table td.neg { color: var(--neg); }
+.dash-table .badge { font-size: 10px; }

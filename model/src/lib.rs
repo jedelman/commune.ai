@@ -493,6 +493,28 @@ pub struct PlayerEval {
     pub demurrage: f64,  // CC/yr eroding off the current positive balance
 }
 
+/// Whole-system aggregates for the dashboard. Computed in one pass alongside the per-node /
+/// per-player evals so the numbers can't drift from the detail views.
+#[derive(Serialize, Deserialize)]
+pub struct SystemStats {
+    pub members: u32,
+    pub nodes: u32,
+    pub nodes_clearing: u32,
+    pub period: u32,
+    pub tx_count: u32,
+    pub reserve: f64,
+    // Mutual-credit ledger (all accounts: players, node pools, federation reserve).
+    pub total_credit: f64,        // Σ positive balances (claims on the community)
+    pub total_debt: f64,          // Σ |negative balances| (obligations to the community)
+    pub melted_demurrage: f64,    // total_debt − total_credit: idle credit burned away (Gesell)
+    pub demurrage_per_yr: f64,    // current erosion rate
+    // Capital layer (fiat/annual snapshot — owned by the members who contributed it).
+    pub committed_bonds: f64,     // Σ rolled-in home equity (member loans to nodes)
+    pub committed_equity: f64,    // Σ limited-equity buy-ins
+    pub total_mortgage: f64,
+    pub aggregate_node_net: f64,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct WorldEval {
     pub nodes: Vec<NodeEval>,
@@ -501,6 +523,7 @@ pub struct WorldEval {
     pub carrying_charges: f64,   // current per-period Bancor charge rate across nodes (display)
     pub federation_clears: bool, // every node clears AND reserve stays non-negative
     pub period: u32,
+    pub system: SystemStats,
 }
 
 pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
@@ -585,10 +608,37 @@ pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
     // The reserve is a real ledger stock: the seed + whatever Bancor clearing charges have been
     // posted to the "fed" account. (Demurrage melts idle credit — Gesell — rather than being
     // redistributed; total_demurrage is the live erosion rate, shown per player.)
-    let _ = total_demurrage;
     let fed_balance = balance_at(&doc.txs, FED_ACCOUNT, now_ms, 0.0).0;
     let reserve = doc.reserve + fed_balance;
     let federation_clears = node_evals.iter().all(|n| n.clears) && reserve >= 0.0;
+
+    // System aggregates. Credit/debt span every account (players + node pools + fed reserve).
+    let mut total_credit = fed_balance.max(0.0);
+    let mut total_debt = (-fed_balance).max(0.0);
+    for p in &player_evals {
+        total_credit += p.cc_balance.max(0.0);
+        total_debt += (-p.cc_balance).max(0.0);
+    }
+    for n in &node_evals {
+        total_credit += n.pool_balance.max(0.0);
+        total_debt += (-n.pool_balance).max(0.0);
+    }
+    let system = SystemStats {
+        members: player_evals.len() as u32,
+        nodes: node_evals.len() as u32,
+        nodes_clearing: node_evals.iter().filter(|n| n.clears).count() as u32,
+        period: doc.period,
+        tx_count: doc.txs.len() as u32,
+        reserve,
+        total_credit,
+        total_debt,
+        melted_demurrage: (total_debt - total_credit).max(0.0),
+        demurrage_per_yr: total_demurrage,
+        committed_bonds: node_evals.iter().map(|n| n.committed_bonds).sum(),
+        committed_equity: node_evals.iter().map(|n| n.committed_equity).sum(),
+        total_mortgage: node_evals.iter().map(|n| n.node_result.mortgage_principal).sum(),
+        aggregate_node_net: node_evals.iter().map(|n| n.node_result.node_net_with_enterprise).sum(),
+    };
 
     WorldEval {
         nodes: node_evals,
@@ -597,6 +647,7 @@ pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
         carrying_charges,
         federation_clears,
         period: doc.period,
+        system,
     }
 }
 

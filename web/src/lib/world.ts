@@ -78,6 +78,23 @@ export interface PlayerEval {
   demurrage: number;
 }
 
+export interface SystemStats {
+  members: number;
+  nodes: number;
+  nodes_clearing: number;
+  period: number;
+  tx_count: number;
+  reserve: number;
+  total_credit: number;
+  total_debt: number;
+  melted_demurrage: number;
+  demurrage_per_yr: number;
+  committed_bonds: number;
+  committed_equity: number;
+  total_mortgage: number;
+  aggregate_node_net: number;
+}
+
 export interface WorldEval {
   nodes: NodeEval[];
   players: PlayerEval[];
@@ -85,6 +102,7 @@ export interface WorldEval {
   carrying_charges: number;
   federation_clears: boolean;
   period: number;
+  system: SystemStats;
 }
 
 export const PERSONA_LABELS: Record<PersonaKind, string> = {
