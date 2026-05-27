@@ -1,0 +1,6 @@
+node_modules/
+target/
+web/src/wasm/
+web/dist/
+.wrangler/
+*.tsbuildinfo

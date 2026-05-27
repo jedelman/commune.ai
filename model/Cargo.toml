@@ -1,0 +1,23 @@
+[package]
+name = "commune-model"
+version = "0.1.0"
+edition = "2021"
+description = "Financial engine for the commune.ai scenario tool (Node #1 economics, per-persona before/after)."
+license = "MIT"
+
+[lib]
+# cdylib for the WASM bundle the browser loads; rlib so `cargo test` runs the same code natively.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+
+[profile.release]
+opt-level = "s"
+
+# wasm-opt downloads a binaryen release binary on first run; that download is blocked in
+# sandboxed/CI networks and isn't required — the release profile above already optimizes for size.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
