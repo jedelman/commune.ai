@@ -44,6 +44,15 @@ export interface Tx {
   amount: number;
 }
 
+export interface Proposal {
+  id: string;
+  kind: "jubilee";
+  debtor: string;
+  node_id: string;
+  votes: string[];
+  created_ms: number;
+}
+
 export interface WorldDoc {
   nodes: WorldNode[];
   players: WorldPlayer[];
@@ -51,6 +60,7 @@ export interface WorldDoc {
   bands: ClearingBands;
   txs: Tx[];
   period: number;
+  proposals: Proposal[];
 }
 
 export type Roles = Record<string, string>;
@@ -129,7 +139,9 @@ export type OutMsg =
   | { t: "governance"; node_id: string; field: string; value: number }
   | { t: "addNode"; name: string }
   | { t: "labor"; hours: number }
-  | { t: "transfer"; to: string; amount: number };
+  | { t: "transfer"; to: string; amount: number }
+  | { t: "proposeJubilee" }
+  | { t: "voteJubilee"; id: string };
 
 const wsBase = import.meta.env.DEV
   ? "ws://localhost:8787"

@@ -58,6 +58,7 @@ function defaultDoc(): WorldDoc {
     bands: { band1: 0.25, rate1: 0.01, band2: 0.5, rate2: 0.02 },
     txs: [],
     period: 0,
+    proposals: [],
   };
 }
 
@@ -343,6 +344,47 @@ export class World {
           changed = true;
           await this.log("w", sess.pid, "tx_transfer", { to, amount });
         }
+        break;
+      }
+      case "proposeJubilee": {
+        // Debtor self-request only: you must be a member with a negative balance.
+        const me = this.doc.players.find((p) => p.id === sess.pid);
+        if (!me) break;
+        if (this.poolBalance(sess.pid) >= 0) {
+          ws.send(JSON.stringify({ t: "error", message: "no debt to forgive" }));
+          break;
+        }
+        if (this.doc.proposals.some((p) => p.debtor === sess.pid)) break; // one open per debtor
+        this.doc.proposals.push({
+          id: crypto.randomUUID().slice(0, 6),
+          kind: "jubilee",
+          debtor: sess.pid,
+          node_id: me.node_id,
+          votes: [],
+          created_ms: Date.now(),
+        });
+        changed = true;
+        await this.log("w", sess.pid, "jubilee_propose", { node: me.node_id });
+        break;
+      }
+      case "voteJubilee": {
+        const prop = this.doc.proposals.find((p) => p.id === String(m.id));
+        if (!prop) break;
+        const voter = this.doc.players.find((p) => p.id === sess.pid);
+        if (!voter || voter.node_id !== prop.node_id || sess.pid === prop.debtor) break;
+        if (!prop.votes.includes(sess.pid)) prop.votes.push(sess.pid);
+        // Strict majority of the OTHER members of the debtor's node.
+        const others = this.doc.players.filter((p) => p.node_id === prop.node_id && p.id !== prop.debtor).length;
+        if (others > 0 && prop.votes.length > others / 2) {
+          const debt = -this.poolBalance(prop.debtor); // current ledger debt (positive)
+          if (debt > 0) {
+            // The node pool bears it: pool → debtor zeroes the debt; the node absorbs the write-off.
+            this.pushTx({ ts_ms: Date.now(), from: prop.node_id, to: prop.debtor, amount: debt });
+            await this.log("w", prop.debtor, "jubilee_execute", { node: prop.node_id, amount: debt, votes: prop.votes.length });
+          }
+          this.doc.proposals = this.doc.proposals.filter((p) => p.id !== prop.id);
+        }
+        changed = true;
         break;
       }
     }

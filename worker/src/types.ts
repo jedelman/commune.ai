@@ -73,6 +73,16 @@ export interface Tx {
   amount: number;
 }
 
+// A collective ledger action: the debtor requests it, node members vote, the node pool bears it.
+export interface Proposal {
+  id: string;
+  kind: "jubilee";
+  debtor: string; // player id
+  node_id: string;
+  votes: string[]; // ids of node members (≠ debtor) who approve
+  created_ms: number;
+}
+
 export interface WorldDoc {
   nodes: WorldNode[];
   players: WorldPlayer[];
@@ -80,6 +90,7 @@ export interface WorldDoc {
   bands: ClearingBands;
   txs: Tx[];
   period: number;
+  proposals: Proposal[];
 }
 
 // roles map: `${nodeId}:capital_stack` -> playerId, and `federation` -> playerId

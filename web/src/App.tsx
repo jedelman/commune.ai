@@ -94,6 +94,19 @@ export default function App() {
 
   const [view, setView] = useState<"play" | "system">("play");
 
+  // Jubilee proposals (collective debt forgiveness).
+  const myNodeId = myPlayer?.node_id;
+  const myProposal = me ? doc?.proposals?.find((p) => p.debtor === me) : undefined;
+  const nodeProposals = (doc?.proposals ?? []).filter((p) => myNodeId && p.node_id === myNodeId);
+  const debtOf = (id: string) => {
+    const e = world?.players.find((pp) => pp.id === id);
+    return e ? Math.max(0, -e.cc_balance) : 0;
+  };
+  const neededFor = (nodeId: string, debtor: string) => {
+    const others = (world?.players ?? []).filter((pp) => pp.node_id === nodeId && pp.id !== debtor).length;
+    return Math.floor(others / 2) + 1;
+  };
+
   return (
     <div className="app">
       <header className="masthead">
@@ -216,6 +229,16 @@ export default function App() {
                       members={world.players.filter((p) => p.id !== me)}
                       onSend={(to, amount) => send({ t: "transfer", to, amount })}
                     />
+                    {myEval.cc_balance < 0 &&
+                      (myProposal ? (
+                        <p className="muted small">
+                          Jubilee requested · {myProposal.votes.length}/{neededFor(myProposal.node_id, myProposal.debtor)} neighbors approving
+                        </p>
+                      ) : (
+                        <button className="ghost wide-btn" onClick={() => send({ t: "proposeJubilee" })}>
+                          Request jubilee ({money(-myEval.cc_balance)} debt)
+                        </button>
+                      ))}
                   </div>
                 </div>
               )}
@@ -246,6 +269,26 @@ export default function App() {
                   <p className="muted small">Apply across every node. Compression = the commune↔market labor dial; demurrage kills accumulation.</p>
                   <NumRow label="Compression floor (CC/hr)" value={doc.nodes[0]?.governance.compression_floor ?? 25} step={1} onChange={(v) => send({ t: "governance", node_id: fedNodeId, field: "compression_floor", value: v })} />
                   <NumRow label="Demurrage rate (%/yr)" value={Math.round((doc.nodes[0]?.governance.demurrage_rate ?? 0) * 100)} step={1} onChange={(v) => send({ t: "governance", node_id: fedNodeId, field: "demurrage_rate", value: v / 100 })} />
+                </div>
+              )}
+
+              {nodeProposals.length > 0 && (
+                <div className="panel jubilee">
+                  <h3>Jubilee proposals <span className="muted small">· your node decides (majority)</span></h3>
+                  {nodeProposals.map((p) => {
+                    const canVote = !!me && p.debtor !== me && !p.votes.includes(me);
+                    return (
+                      <div className="prop" key={p.id}>
+                        <span>{handleOf(p.debtor)} requests forgiveness of <b>{money(debtOf(p.debtor))} CC</b></span>
+                        <span className="muted small">{p.votes.length}/{neededFor(p.node_id, p.debtor)}</span>
+                        {canVote ? (
+                          <button className="ghost" onClick={() => send({ t: "voteJubilee", id: p.id })}>approve</button>
+                        ) : (
+                          <span className="muted small">{p.debtor === me ? "your request" : "voted"}</span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
