@@ -30,6 +30,25 @@ export interface NodeResult {
   annual_depreciation: number;
 }
 
+export interface EnterpriseConfig {
+  annual_card_volume: number;
+  processor_rate: number;
+  at_cost_rate: number;
+  working_capital: number;
+  mca_apr: number;
+  member_pool_apr: number;
+  bookkeeping_saved: number;
+  procurement_savings: number;
+}
+
+export interface EnterpriseResult {
+  card_processing_saved: number;
+  working_capital_saved: number;
+  bookkeeping_saved: number;
+  procurement_savings: number;
+  total_recapture: number;
+}
+
 export type PersonaKind =
   | "mature_couple"
   | "young_professional"
@@ -40,7 +59,6 @@ export type PersonaKind =
 export interface PersonaInput {
   kind: PersonaKind;
   current_housing_monthly: number;
-  income_annual: number;
   home_equity: number;
   childcare_monthly: number;
   labor_hours_monthly: number;
@@ -90,7 +108,6 @@ export const DEFAULT_PERSONAS: PersonaInput[] = [
   {
     kind: "mature_couple",
     current_housing_monthly: 1_200, // owner carry on a paid-down house (tax/ins/maint)
-    income_annual: 70_000,
     home_equity: 700_000,
     childcare_monthly: 0,
     labor_hours_monthly: 8,
@@ -99,7 +116,6 @@ export const DEFAULT_PERSONAS: PersonaInput[] = [
   {
     kind: "young_professional",
     current_housing_monthly: 2_100,
-    income_annual: 85_000,
     home_equity: 0,
     childcare_monthly: 0,
     labor_hours_monthly: 4,
@@ -108,7 +124,6 @@ export const DEFAULT_PERSONAS: PersonaInput[] = [
   {
     kind: "young_family",
     current_housing_monthly: 2_400,
-    income_annual: 110_000,
     home_equity: 0,
     childcare_monthly: 1_600,
     labor_hours_monthly: 6,
@@ -117,7 +132,6 @@ export const DEFAULT_PERSONAS: PersonaInput[] = [
   {
     kind: "service_worker",
     current_housing_monthly: 1_500,
-    income_annual: 38_000,
     home_equity: 0,
     childcare_monthly: 0,
     labor_hours_monthly: 20,
@@ -126,7 +140,6 @@ export const DEFAULT_PERSONAS: PersonaInput[] = [
   {
     kind: "restaurant_owner",
     current_housing_monthly: 1_800,
-    income_annual: 60_000,
     home_equity: 0,
     childcare_monthly: 0,
     labor_hours_monthly: 0,
@@ -134,17 +147,32 @@ export const DEFAULT_PERSONAS: PersonaInput[] = [
   },
 ];
 
+// Defaults sum to the worked $62k recapture. The recapture isn't a markup — it's the extraction
+// the business stops paying (Square, MCA lenders, QuickBooks). Procurement is the soft dial.
+export const DEFAULT_ENTERPRISE: EnterpriseConfig = {
+  annual_card_volume: 800_000,
+  processor_rate: 0.03,
+  at_cost_rate: 0.009,
+  working_capital: 60_000,
+  mca_apr: 0.5,
+  member_pool_apr: 0.06,
+  bookkeeping_saved: 6_000,
+  procurement_savings: 12_800,
+};
+
 // labor_credit_per_hour is a federation knob (the egalitarian floor), tunable in the UI.
 export const DEFAULT_LABOR_FLOOR = 25;
 
 export interface Scenario {
   node: NodeConfig;
+  enterprise: EnterpriseConfig;
   personas: PersonaInput[];
   laborFloor: number;
 }
 
 export const DEFAULT_SCENARIO: Scenario = {
   node: NODE_ONE,
+  enterprise: DEFAULT_ENTERPRISE,
   personas: DEFAULT_PERSONAS,
   laborFloor: DEFAULT_LABOR_FLOOR,
 };
@@ -182,7 +210,13 @@ export function decodeScenario(hash: string): Scenario | null {
   try {
     const parsed = JSON.parse(fromBase64Url(raw));
     if (!parsed?.node || !Array.isArray(parsed?.personas)) return null;
-    return parsed as Scenario;
+    // Backfill fields added after early share-links were created.
+    return {
+      node: { ...NODE_ONE, ...parsed.node },
+      enterprise: { ...DEFAULT_ENTERPRISE, ...(parsed.enterprise ?? {}) },
+      personas: parsed.personas,
+      laborFloor: parsed.laborFloor ?? DEFAULT_LABOR_FLOOR,
+    };
   } catch {
     return null;
   }

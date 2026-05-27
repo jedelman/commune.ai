@@ -226,7 +226,6 @@ pub enum PersonaKind {
 pub struct PersonaInput {
     pub kind: PersonaKind,
     pub current_housing_monthly: f64,  // rent, or owner carry (tax+ins+maint+P&I) now
-    pub income_annual: f64,
     pub home_equity: f64,              // mature couple: rolled into a member bond
     pub childcare_monthly: f64,        // young family
     pub labor_hours_monthly: f64,      // hours contributed, credited at the floor
@@ -428,7 +427,6 @@ mod tests {
         let p = PersonaInput {
             kind: PersonaKind::YoungProfessional,
             current_housing_monthly: 2_100.0, // market rent
-            income_annual: 85_000.0,
             home_equity: 0.0,
             childcare_monthly: 0.0,
             labor_hours_monthly: 0.0,
@@ -450,7 +448,6 @@ mod tests {
         let p = PersonaInput {
             kind: PersonaKind::MatureCouple,
             current_housing_monthly: 1_000.0, // owner carry on a paid-down house
-            income_annual: 60_000.0,
             home_equity: 700_000.0,
             childcare_monthly: 0.0,
             labor_hours_monthly: 8.0,

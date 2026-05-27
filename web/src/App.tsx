@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  compute_enterprise_layer,
   compute_node,
   compute_personas,
   initEngine,
@@ -8,6 +9,8 @@ import {
   DEFAULT_SCENARIO,
   decodeScenario,
   encodeScenario,
+  type EnterpriseConfig,
+  type EnterpriseResult,
   type NodeConfig,
   type NodeResult,
   type PersonaInput,
@@ -41,6 +44,8 @@ export default function App() {
 
   const setNode = (patch: Partial<NodeConfig>) =>
     setScenario((s) => ({ ...s, node: { ...s.node, ...patch } }));
+  const setEnterprise = (patch: Partial<EnterpriseConfig>) =>
+    setScenario((s) => ({ ...s, enterprise: { ...s.enterprise, ...patch } }));
   const setLaborFloor = (laborFloor: number) =>
     setScenario((s) => ({ ...s, laborFloor }));
   const setPersona = (i: number, patch: Partial<PersonaInput>) =>
@@ -49,10 +54,19 @@ export default function App() {
       personas: s.personas.map((p, j) => (j === i ? { ...p, ...patch } : p)),
     }));
 
-  const nodeResult = useMemo<NodeResult | null>(() => {
+  const enterpriseResult = useMemo<EnterpriseResult | null>(() => {
     if (!engineReady) return null;
-    return compute_node(scenario.node) as NodeResult;
-  }, [engineReady, scenario.node]);
+    return compute_enterprise_layer(scenario.enterprise) as EnterpriseResult;
+  }, [engineReady, scenario.enterprise]);
+
+  const nodeResult = useMemo<NodeResult | null>(() => {
+    if (!engineReady || !enterpriseResult) return null;
+    // The recapture is derived from the enterprise breakdown, not entered directly.
+    return compute_node({
+      ...scenario.node,
+      enterprise_recapture: enterpriseResult.total_recapture,
+    }) as NodeResult;
+  }, [engineReady, scenario.node, enterpriseResult]);
 
   const personaResults = useMemo<PersonaResult[]>(() => {
     if (!engineReady) return [];
@@ -95,9 +109,12 @@ export default function App() {
         <main className="layout">
           <NodePanel
             node={scenario.node}
+            enterprise={scenario.enterprise}
+            enterpriseResult={enterpriseResult}
             laborFloor={scenario.laborFloor}
             result={nodeResult}
             onNode={setNode}
+            onEnterprise={setEnterprise}
             onLaborFloor={setLaborFloor}
           />
 
