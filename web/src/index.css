@@ -232,6 +232,15 @@ body {
 .action input { width: 80px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; font-size: 13px; text-align: right; }
 .action select { flex: 1; min-width: 0; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; font-size: 13px; }
 
+.capital { margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 12px; }
+.cap-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.cap-row { display: flex; align-items: baseline; gap: 8px; font-size: 13px; padding: 3px 0; }
+.cap-row b { font-variant-numeric: tabular-nums; }
+.cap-row > span:first-child { flex: 1; color: var(--muted); }
+.cap-row.total { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 6px; font-weight: 600; }
+.cap-row.total > span:first-child { color: var(--ink); }
+.cap-collective { margin-top: 8px; line-height: 1.4; }
+
 .wide-btn { width: 100%; margin-top: 8px; }
 .jubilee { position: static; margin-top: 18px; border-color: var(--accent); }
 .jubilee h3 { margin: 0 0 8px; font-size: 15px; }

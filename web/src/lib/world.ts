@@ -77,6 +77,8 @@ export interface NodeEval {
   clearing_balance: number;
   carrying_charge: number;
   pool_balance: number;
+  member_capital: number;
+  capital_ratio: number;
 }
 
 export interface PlayerEval {
@@ -86,6 +88,11 @@ export interface PlayerEval {
   persona: PersonaResult;
   cc_balance: number;
   demurrage: number;
+  bond_position: number;
+  bond_yield: number;
+  equity_position: number;
+  capital_total: number;
+  capital_share: number;
 }
 
 export interface SystemStats {

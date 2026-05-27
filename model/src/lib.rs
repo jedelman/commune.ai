@@ -481,6 +481,8 @@ pub struct NodeEval {
     pub clearing_balance: f64, // surplus(+)/deficit(−) position vs the union
     pub carrying_charge: f64,  // symmetric Bancor charge → reserve
     pub pool_balance: f64,     // the node pool's CC position (derived from the ledger)
+    pub member_capital: f64,   // bonds + equity put in by members
+    pub capital_ratio: f64,    // member_capital / project cost (rest is mortgage)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -491,6 +493,12 @@ pub struct PlayerEval {
     pub persona: PersonaResult,
     pub cc_balance: f64, // derived from the ledger at now_ms
     pub demurrage: f64,  // CC/yr eroding off the current positive balance
+    // Individual capital position (fiat/annual layer — owned by the member, distinct from CC).
+    pub bond_position: f64,   // home equity rolled in as a loan to the node
+    pub bond_yield: f64,      // annual interest the node owes them (bond × bond_rate)
+    pub equity_position: f64, // limited-equity buy-in
+    pub capital_total: f64,   // bond + equity committed
+    pub capital_share: f64,   // their fraction of the node's total member capital
 }
 
 /// Whole-system aggregates for the dashboard. Computed in one pass alongside the per-node /
@@ -561,6 +569,10 @@ pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
         };
         carrying_charges += charge;
 
+        let member_capital = committed_bonds + committed_equity;
+        let project_cost = n.config.purchase_price + n.config.renovation;
+        let capital_ratio = if project_cost > 0.0 { member_capital / project_cost } else { 0.0 };
+
         node_evals.push(NodeEval {
             id: n.id.clone(),
             name: n.name.clone(),
@@ -572,6 +584,8 @@ pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
             clearing_balance,
             carrying_charge: charge,
             pool_balance,
+            member_capital,
+            capital_ratio,
             node_result,
         });
     }
@@ -595,6 +609,18 @@ pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
         };
         let (cc_balance, demurrage) = balance_at(&doc.txs, &p.id, now_ms, demurrage_rate);
         total_demurrage += demurrage;
+
+        let bond_position = p.persona.home_equity;
+        let bond_yield = bond_position * bond_rate;
+        let equity_position = p.equity_buyin;
+        let capital_total = bond_position + equity_position;
+        let node_capital = node_evals
+            .iter()
+            .find(|ne| ne.id == p.node_id)
+            .map(|ne| ne.member_capital)
+            .unwrap_or(0.0);
+        let capital_share = if node_capital > 0.0 { capital_total / node_capital } else { 0.0 };
+
         player_evals.push(PlayerEval {
             id: p.id.clone(),
             handle: p.handle.clone(),
@@ -602,6 +628,11 @@ pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
             persona: compute_persona(&p.persona, &params),
             cc_balance,
             demurrage,
+            bond_position,
+            bond_yield,
+            equity_position,
+            capital_total,
+            capital_share,
         });
     }
 

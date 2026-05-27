@@ -218,6 +218,24 @@ export default function App() {
                   </table>
                   <p className="muted small">{myEval.persona.note}</p>
 
+                  {(() => {
+                    const myNode = world.nodes.find((n) => n.id === myEval.node_id);
+                    return (
+                      <div className="capital">
+                        <div className="cap-head"><span className="lbl">Your capital</span><span className="muted small">{Math.round(myEval.capital_share * 100)}% of this node</span></div>
+                        <div className="cap-row"><span>Bond (loan in)</span><b>{money(myEval.bond_position)}</b><span className="muted small">+{money(myEval.bond_yield)}/yr</span></div>
+                        <div className="cap-row"><span>Equity share</span><b>{money(myEval.equity_position)}</b></div>
+                        <div className="cap-row total"><span>Your committed capital</span><b>{money(myEval.capital_total)}</b></div>
+                        {myNode && (
+                          <div className="cap-collective muted small">
+                            Node total: {money(myNode.member_capital)} member capital ({Math.round(myNode.capital_ratio * 100)}% of project) ·
+                            Federation: {money(world.system.committed_bonds + world.system.committed_equity)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   <div className="ledger">
                     <div className="bal">
                       <span className="muted small">Mutual-credit balance</span>

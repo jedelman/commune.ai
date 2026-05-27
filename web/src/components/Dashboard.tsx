@@ -50,11 +50,12 @@ export function Dashboard({ world, roles, handleOf }: Props) {
       </section>
 
       <section>
-        <h2>Capital layer <span className="muted small">(owned by contributing members — see notes)</span></h2>
+        <h2>Capital federation <span className="muted small">(member-owned; mortgage is the gap)</span></h2>
         <div className="tiles">
+          <Tile label="Federation capital" value={money(s.committed_bonds + s.committed_equity)} tone="pos" />
           <Tile label="Committed bonds" value={money(s.committed_bonds)} />
           <Tile label="Committed equity" value={money(s.committed_equity)} />
-          <Tile label="Total mortgage" value={money(s.total_mortgage)} />
+          <Tile label="Total mortgage" value={money(s.total_mortgage)} tone="neg" />
           <Tile label="Aggregate node net" value={money(s.aggregate_node_net)} tone={s.aggregate_node_net >= 0 ? "pos" : "neg"} />
         </div>
       </section>
@@ -65,7 +66,7 @@ export function Dashboard({ world, roles, handleOf }: Props) {
           <thead>
             <tr>
               <th>Node</th><th>Capital stack</th><th>Members</th><th>Bonds</th><th>Equity</th>
-              <th>Mortgage</th><th>Node net</th><th>Pool (CC)</th><th>Charge</th><th>Status</th>
+              <th>Member cap %</th><th>Mortgage</th><th>Node net</th><th>Pool (CC)</th><th>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -76,10 +77,10 @@ export function Dashboard({ world, roles, handleOf }: Props) {
                 <td>{n.members}</td>
                 <td>{money(n.committed_bonds)}</td>
                 <td>{money(n.committed_equity)}</td>
+                <td className={n.capital_ratio >= 0.35 ? "pos" : "neg"}>{Math.round(n.capital_ratio * 100)}%</td>
                 <td>{money(n.node_result.mortgage_principal)}</td>
                 <td className={n.node_result.node_net_with_enterprise >= 0 ? "pos" : "neg"}>{money(n.node_result.node_net_with_enterprise)}</td>
                 <td>{money(n.pool_balance)}</td>
-                <td>{money(n.carrying_charge)}</td>
                 <td>{n.clears ? <span className="badge ok">clears</span> : <span className="badge warn">needs capital</span>}</td>
               </tr>
             ))}
@@ -91,7 +92,7 @@ export function Dashboard({ world, roles, handleOf }: Props) {
         <h2>Members</h2>
         <table className="dash-table">
           <thead>
-            <tr><th>Member</th><th>Persona</th><th>Node</th><th>CC balance</th><th>Demurrage/yr</th><th>Annual net</th></tr>
+            <tr><th>Member</th><th>Persona</th><th>Node</th><th>Bond</th><th>Equity</th><th>Cap share</th><th>CC balance</th><th>Annual net</th></tr>
           </thead>
           <tbody>
             {world.players.map((p) => (
@@ -99,8 +100,10 @@ export function Dashboard({ world, roles, handleOf }: Props) {
                 <td>{p.handle}</td>
                 <td className="muted">{p.persona.kind}</td>
                 <td className="muted">{world.nodes.find((n) => n.id === p.node_id)?.name ?? p.node_id}</td>
+                <td>{money(p.bond_position)}</td>
+                <td>{money(p.equity_position)}</td>
+                <td>{Math.round(p.capital_share * 100)}%</td>
                 <td className={p.cc_balance >= 0 ? "pos" : "neg"}>{money(p.cc_balance)} CC</td>
-                <td className="muted">{money(p.demurrage)}</td>
                 <td className={p.persona.net_annual >= 0 ? "pos" : "neg"}>{money(p.persona.net_annual)}</td>
               </tr>
             ))}
