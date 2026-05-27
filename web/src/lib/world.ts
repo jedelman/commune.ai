@@ -50,6 +50,7 @@ export interface WorldDoc {
   reserve: number;
   bands: ClearingBands;
   txs: Tx[];
+  period: number;
 }
 
 export type Roles = Record<string, string>;
@@ -83,6 +84,7 @@ export interface WorldEval {
   reserve: number;
   carrying_charges: number;
   federation_clears: boolean;
+  period: number;
 }
 
 export const PERSONA_LABELS: Record<PersonaKind, string> = {

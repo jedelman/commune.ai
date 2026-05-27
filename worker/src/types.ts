@@ -79,6 +79,7 @@ export interface WorldDoc {
   reserve: number;
   bands: ClearingBands;
   txs: Tx[];
+  period: number;
 }
 
 // roles map: `${nodeId}:capital_stack` -> playerId, and `federation` -> playerId

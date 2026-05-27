@@ -13,6 +13,10 @@ interface Env {
   DB?: D1Database;
 }
 
+// One sim "month" of wall-clock time. Each period posts rent + labor + clearing to the ledger.
+const PERIOD_MS = 8_000;
+const FED = "fed"; // federation reserve ledger account
+
 const DEFAULT_GOVERNANCE: Governance = {
   internal_rent_monthly: 1_200,
   bond_rate: 0.05,
@@ -53,6 +57,7 @@ function defaultDoc(): WorldDoc {
     reserve: 50_000,
     bands: { band1: 0.25, rate1: 0.01, band2: 0.5, rate2: 0.02 },
     txs: [],
+    period: 0,
   };
 }
 
@@ -163,6 +168,54 @@ export class World {
     if (this.doc.txs.length > 5000) this.doc.txs = this.doc.txs.slice(-5000);
   }
 
+  private poolBalance(id: string): number {
+    let b = 0;
+    for (const tx of this.doc.txs) {
+      if (tx.to === id) b += tx.amount;
+      if (tx.from === id) b -= tx.amount;
+    }
+    return b;
+  }
+
+  // The heartbeat: each period posts the structural flows to the ledger, so the whole economy
+  // runs through mutual credit. Demurrage is handled continuously by the engine between periods.
+  private async advancePeriod() {
+    const now = Date.now();
+    // Rent (member → node pool) and labor credit (node pool → member) for everyone.
+    for (const p of this.doc.players) {
+      const node = this.nodeById(p.node_id);
+      if (!node) continue;
+      const rent = node.governance.internal_rent_monthly;
+      const labor = Math.max(0, p.persona.labor_hours_monthly) * node.governance.compression_floor;
+      if (rent > 0) this.pushTx({ ts_ms: now, from: p.id, to: node.id, amount: rent });
+      if (labor > 0) this.pushTx({ ts_ms: now, from: node.id, to: p.id, amount: labor });
+    }
+    // Inter-node clearing: a symmetric Bancor carrying charge on each node's pool imbalance → reserve.
+    for (const node of this.doc.nodes) {
+      const pool = this.poolBalance(node.id);
+      const quota = Math.max(1, node.config.units * node.governance.internal_rent_monthly * 12);
+      const ratio = Math.abs(pool) / quota;
+      const rate = ratio > this.doc.bands.band2 ? this.doc.bands.rate2 : ratio > this.doc.bands.band1 ? this.doc.bands.rate1 : 0;
+      const charge = (Math.abs(pool) * rate) / 12; // monthly slice of the annual band rate
+      if (charge > 0) this.pushTx({ ts_ms: now, from: node.id, to: FED, amount: charge });
+    }
+    this.doc.period = (this.doc.period ?? 0) + 1;
+    await this.persist();
+    this.broadcast();
+    if (this.doc.players.length > 0) await this.ctx.storage.setAlarm(Date.now() + PERIOD_MS);
+  }
+
+  async alarm() {
+    await this.load();
+    await this.advancePeriod();
+  }
+
+  private async ensureAlarm() {
+    if ((await this.ctx.storage.getAlarm()) === null && this.doc.players.length > 0) {
+      await this.ctx.storage.setAlarm(Date.now() + PERIOD_MS);
+    }
+  }
+
   private async onMessage(ws: WebSocket, raw: string) {
     const sess = this.sessions.get(ws);
     if (!sess) return;
@@ -186,6 +239,7 @@ export class World {
         if (existing) Object.assign(existing, player);
         else this.doc.players.push(player);
         changed = true;
+        await this.ensureAlarm(); // start the economy's heartbeat once someone's in
         await this.log("w", sess.pid, "join", { node_id });
         break;
       }

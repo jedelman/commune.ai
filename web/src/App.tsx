@@ -60,6 +60,8 @@ export default function App() {
   const myEval = world?.players.find((p) => p.id === me) ?? null;
   const joined = !!myPlayer;
   const handleOf = (id: string) => doc?.players.find((p) => p.id === id)?.handle ?? id;
+  const nameOf = (id: string) =>
+    id === "fed" ? "reserve" : (doc?.nodes.find((n) => n.id === id)?.name ?? handleOf(id));
 
   // Local editor state for my persona before/while joined.
   const [kind, setKind] = useState<PersonaKind>("young_professional");
@@ -113,6 +115,7 @@ export default function App() {
             <div><span>Clearing charges</span><b>{money(world.carrying_charges)}</b></div>
             <div><span>Members</span><b>{doc.players.length}</b></div>
             <div><span>Nodes</span><b>{doc.nodes.length}</b></div>
+            <div><span>Period (mo)</span><b>{world.period}</b></div>
             <div className="fed-role">
               <span>Federation role (compression, demurrage)</span>
               <b>{fedHolder ? handleOf(fedHolder) : "unclaimed"}</b>
@@ -235,6 +238,22 @@ export default function App() {
                   <NumRow label="Demurrage rate (%/yr)" value={Math.round((doc.nodes[0]?.governance.demurrage_rate ?? 0) * 100)} step={1} onChange={(v) => send({ t: "governance", node_id: fedNodeId, field: "demurrage_rate", value: v / 100 })} />
                 </div>
               )}
+
+              <div className="panel feed">
+                <h3>Economy feed <span className="muted small">· rent + labor + clearing post each period (≈8s)</span></h3>
+                {doc.txs.length === 0 ? (
+                  <p className="muted small">No transactions yet — the heartbeat starts once someone joins.</p>
+                ) : (
+                  <ul className="feed-list">
+                    {doc.txs.slice(-12).reverse().map((tx, i) => (
+                      <li key={`${tx.ts_ms}-${i}`}>
+                        <span>{nameOf(tx.from)} → {nameOf(tx.to)}</span>
+                        <b>{money(tx.amount)} CC</b>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </section>
           </main>
         </>

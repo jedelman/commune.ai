@@ -416,11 +416,16 @@ pub struct ClearingBands {
 pub struct WorldDoc {
     pub nodes: Vec<WorldNode>,
     pub players: Vec<WorldPlayer>,
-    pub reserve: f64,
+    pub reserve: f64, // seed; the live reserve is this + the "fed" ledger account
     pub bands: ClearingBands,
     #[serde(default)]
     pub txs: Vec<Tx>, // the mutual-credit ledger (append-only event stream)
+    #[serde(default)]
+    pub period: u32, // sim periods (≈ months) advanced by the world's heartbeat
 }
+
+/// The federation reserve's ledger account id (Bancor clearing charges accrue here).
+pub const FED_ACCOUNT: &str = "fed";
 
 const MS_PER_YEAR: f64 = 365.25 * 24.0 * 3600.0 * 1000.0;
 
@@ -492,9 +497,10 @@ pub struct PlayerEval {
 pub struct WorldEval {
     pub nodes: Vec<NodeEval>,
     pub players: Vec<PlayerEval>,
-    pub reserve: f64,            // after this period's carrying charges flow in
-    pub carrying_charges: f64,   // total Bancor charges collected
+    pub reserve: f64,            // seed + the "fed" ledger account balance (a real stock)
+    pub carrying_charges: f64,   // current per-period Bancor charge rate across nodes (display)
     pub federation_clears: bool, // every node clears AND reserve stays non-negative
+    pub period: u32,
 }
 
 pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
@@ -576,8 +582,12 @@ pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
         });
     }
 
-    // Demurrage and Bancor charges both fund the federation reserve (SETUP §4 / Part 9).
-    let reserve = doc.reserve + carrying_charges + total_demurrage;
+    // The reserve is a real ledger stock: the seed + whatever Bancor clearing charges have been
+    // posted to the "fed" account. (Demurrage melts idle credit — Gesell — rather than being
+    // redistributed; total_demurrage is the live erosion rate, shown per player.)
+    let _ = total_demurrage;
+    let fed_balance = balance_at(&doc.txs, FED_ACCOUNT, now_ms, 0.0).0;
+    let reserve = doc.reserve + fed_balance;
     let federation_clears = node_evals.iter().all(|n| n.clears) && reserve >= 0.0;
 
     WorldEval {
@@ -586,6 +596,7 @@ pub fn evaluate_world(doc: &WorldDoc, now_ms: f64) -> WorldEval {
         reserve,
         carrying_charges,
         federation_clears,
+        period: doc.period,
     }
 }
 
@@ -745,6 +756,7 @@ mod tests {
             reserve: 50_000.0,
             bands: ClearingBands { band1: 0.25, rate1: 0.01, band2: 0.50, rate2: 0.02 },
             txs: vec![],
+            period: 0,
         }
     }
 
@@ -793,7 +805,12 @@ mod tests {
         let p1 = now1.players[0].cc_balance;
         assert!(p1 < p0);
         assert!((p1 - 10_000.0 * (-0.05_f64).exp()).abs() < 1.0);
-        // Demurrage funds the reserve, so it sits above the $50k seed.
-        assert!(now1.reserve > 50_000.0);
+        // Demurrage melts idle credit (Gesell) — it does NOT add to the reserve.
+        assert!((now1.reserve - 50_000.0).abs() < 1.0);
+
+        // The reserve IS a ledger stock: a Bancor charge posted to the fed account lifts it.
+        w.txs.push(Tx { ts_ms: 0.0, from: "n1".into(), to: FED_ACCOUNT.into(), amount: 200.0 });
+        let funded = evaluate_world(&w, one_year);
+        assert!((funded.reserve - 50_200.0).abs() < 1.0);
     }
 }
