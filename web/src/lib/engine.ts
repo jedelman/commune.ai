@@ -4,6 +4,7 @@ import init, {
   compute_enterprise_layer,
   compute_trades_layer,
   compute_tax_layer,
+  evaluate_world_doc,
 } from "../wasm/commune_model";
 // Vite: pass the .wasm URL explicitly so init() finds it after bundling.
 import wasmUrl from "../wasm/commune_model_bg.wasm?url";
@@ -22,4 +23,5 @@ export {
   compute_enterprise_layer,
   compute_trades_layer,
   compute_tax_layer,
+  evaluate_world_doc,
 };

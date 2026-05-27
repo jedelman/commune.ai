@@ -154,3 +154,70 @@ body {
 
 .foot { margin-top: 32px; border-top: 1px solid var(--line); padding-top: 14px; font-size: 12px; }
 .foot code { background: #ece7dd; padding: 1px 5px; border-radius: 4px; }
+
+/* ─── simulator ─── */
+.ident { display: flex; align-items: center; gap: 8px; }
+.ident input { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 14px; width: 130px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: #c0a000; }
+.dot.open { background: var(--pos); }
+.dot.closed { background: var(--neg); }
+.dot.connecting { background: #c0a000; }
+
+.toast { background: var(--neg); color: #fff; padding: 8px 14px; border-radius: 6px; margin-bottom: 12px; font-size: 14px; }
+
+.fed-summary {
+  display: flex; flex-wrap: wrap; gap: 18px; align-items: center;
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 18px; margin-bottom: 20px;
+}
+.fed-summary > div { display: flex; flex-direction: column; font-size: 13px; }
+.fed-summary > div > span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.fed-summary > div > b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.fed-summary .pos { color: var(--pos); }
+.fed-summary .neg { color: var(--neg); }
+.fed-role { margin-left: auto; flex-direction: row !important; align-items: center; gap: 8px; }
+.fed-role span { color: var(--muted); }
+
+.select { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-size: 13px; }
+.select span { color: var(--muted); }
+.select select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 14px; background: #fff; }
+
+.num.wide { justify-content: space-between; width: 100%; margin: 8px 0; color: var(--ink); }
+.num.wide span { color: var(--muted); font-size: 13px; }
+.num.wide input { width: 130px; }
+
+.primary { width: 100%; margin-top: 14px; background: var(--pos); color: #fff; border: none; border-radius: 8px; padding: 12px; font-size: 15px; cursor: pointer; }
+.primary:hover { filter: brightness(1.06); }
+.ghost { background: none; border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; color: var(--accent); }
+.ghost:hover { background: #eef2f5; }
+
+.me-result { margin-top: 16px; border-top: 2px solid var(--ink); padding-top: 14px; }
+
+.nodes-wrap { min-width: 0; }
+.nodes-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.nodes-head h2 { margin: 0; font-size: 20px; }
+.add-node { display: flex; gap: 6px; }
+.add-node input { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; width: 150px; }
+.nodes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 16px; margin: 16px 0; }
+
+.node { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; border-left: 4px solid var(--line); }
+.node.clears { border-left-color: var(--pos); }
+.node.fails { border-left-color: var(--neg); }
+.node-head { display: flex; justify-content: space-between; align-items: center; }
+.node-head h3 { margin: 0; font-size: 16px; }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+.badge.ok { background: #d8ecdf; color: var(--pos); }
+.badge.warn { background: #f3ddd5; color: var(--neg); }
+.node-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; margin: 12px 0; font-size: 13px; }
+.node-stats > div { display: flex; justify-content: space-between; }
+.node-stats span { color: var(--muted); }
+.node-stats b { font-variant-numeric: tabular-nums; }
+.node-stats .pos b { color: var(--pos); }
+.node-stats .neg b { color: var(--neg); }
+
+.role-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; border-top: 1px solid var(--line); padding-top: 10px; }
+.gov { margin-top: 8px; }
+.gov.locked { opacity: 0.85; }
+.field-disabled { opacity: 0.55; }
+.field-disabled input[type="range"] { cursor: not-allowed; }
+.fed-gov { position: static; margin-top: 18px; }

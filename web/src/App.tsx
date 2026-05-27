@@ -1,147 +1,247 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { evaluate_world_doc, initEngine } from "./lib/engine";
+import { money, type PersonaInput, type PersonaKind } from "./lib/model";
 import {
-  compute_enterprise_layer,
-  compute_node,
-  compute_personas,
-  initEngine,
-} from "./lib/engine";
-import {
-  DEFAULT_SCENARIO,
-  decodeScenario,
-  encodeScenario,
-  type EnterpriseConfig,
-  type EnterpriseResult,
-  type NodeConfig,
-  type NodeResult,
-  type PersonaInput,
-  type PersonaResult,
-  type Scenario,
-} from "./lib/model";
-import { NodePanel } from "./components/NodePanel";
-import { PersonaCard } from "./components/PersonaCard";
+  PERSONA_LABELS,
+  PERSONA_TEMPLATES,
+  useWorld,
+  type WorldEval,
+} from "./lib/world";
+import { NodeCard } from "./components/NodeCard";
+
+const BeforeAfterChart = lazy(() => import("./components/BeforeAfterChart"));
+
+function useIdentity() {
+  const [pid] = useState(() => {
+    let v = localStorage.getItem("commune_pid");
+    if (!v) {
+      v = Math.random().toString(36).slice(2, 10);
+      localStorage.setItem("commune_pid", v);
+    }
+    return v;
+  });
+  const [handle, setHandle] = useState(() => localStorage.getItem("commune_handle") || "guest");
+  useEffect(() => localStorage.setItem("commune_handle", handle), [handle]);
+  return { pid, handle, setHandle };
+}
+
+const PERSONA_KINDS: PersonaKind[] = [
+  "mature_couple",
+  "young_professional",
+  "young_family",
+  "service_worker",
+  "restaurant_owner",
+];
 
 export default function App() {
+  const { pid, handle, setHandle } = useIdentity();
   const [engineReady, setEngineReady] = useState(false);
-  const [scenario, setScenario] = useState<Scenario>(
-    () => decodeScenario(window.location.hash) ?? DEFAULT_SCENARIO,
-  );
-  const [copied, setCopied] = useState(false);
-
   useEffect(() => {
     initEngine().then(() => setEngineReady(true));
   }, []);
 
-  // Reflect scenario into the URL hash (so it's shareable) without spamming history.
-  const firstRender = useRef(true);
+  const { status, doc, roles, pid: me, error, send } = useWorld("main", pid, handle);
+
+  const world = useMemo<WorldEval | null>(
+    () => (engineReady && doc ? (evaluate_world_doc(doc) as WorldEval) : null),
+    [engineReady, doc],
+  );
+
+  const myPlayer = doc?.players.find((p) => p.id === me) ?? null;
+  const myEval = world?.players.find((p) => p.id === me) ?? null;
+  const joined = !!myPlayer;
+  const handleOf = (id: string) => doc?.players.find((p) => p.id === id)?.handle ?? id;
+
+  // Local editor state for my persona before/while joined.
+  const [kind, setKind] = useState<PersonaKind>("young_professional");
+  const [persona, setPersona] = useState<PersonaInput>(PERSONA_TEMPLATES.young_professional);
+  const [nodeId, setNodeId] = useState("");
+  const [buyin, setBuyin] = useState(50_000);
   useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
-    const hash = `#s=${encodeScenario(scenario)}`;
-    window.history.replaceState(null, "", hash);
-  }, [scenario]);
+    if (!nodeId && doc?.nodes[0]) setNodeId(doc.nodes[0].id);
+  }, [doc, nodeId]);
 
-  const setNode = (patch: Partial<NodeConfig>) =>
-    setScenario((s) => ({ ...s, node: { ...s.node, ...patch } }));
-  const setEnterprise = (patch: Partial<EnterpriseConfig>) =>
-    setScenario((s) => ({ ...s, enterprise: { ...s.enterprise, ...patch } }));
-  const setLaborFloor = (laborFloor: number) =>
-    setScenario((s) => ({ ...s, laborFloor }));
-  const setPersona = (i: number, patch: Partial<PersonaInput>) =>
-    setScenario((s) => ({
-      ...s,
-      personas: s.personas.map((p, j) => (j === i ? { ...p, ...patch } : p)),
-    }));
-
-  const enterpriseResult = useMemo<EnterpriseResult | null>(() => {
-    if (!engineReady) return null;
-    return compute_enterprise_layer(scenario.enterprise) as EnterpriseResult;
-  }, [engineReady, scenario.enterprise]);
-
-  const nodeResult = useMemo<NodeResult | null>(() => {
-    if (!engineReady || !enterpriseResult) return null;
-    // The recapture is derived from the enterprise breakdown, not entered directly.
-    return compute_node({
-      ...scenario.node,
-      enterprise_recapture: enterpriseResult.total_recapture,
-    }) as NodeResult;
-  }, [engineReady, scenario.node, enterpriseResult]);
-
-  const personaResults = useMemo<PersonaResult[]>(() => {
-    if (!engineReady) return [];
-    return compute_personas({
-      params: {
-        internal_rent_monthly: scenario.node.internal_rent_monthly,
-        bond_rate: scenario.node.bond_rate,
-        labor_credit_per_hour: scenario.laborFloor,
-      },
-      inputs: scenario.personas,
-    }) as PersonaResult[];
-  }, [engineReady, scenario]);
-
-  const share = async () => {
-    const url = window.location.href;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      /* clipboard blocked — the URL is already in the address bar */
-    }
+  const pushPersona = (next: PersonaInput, nextNode = nodeId, nextBuyin = buyin) => {
+    if (joined) send({ t: "setPersona", persona: next, equity_buyin: nextBuyin, node_id: nextNode });
   };
+  const changeKind = (k: PersonaKind) => {
+    const next = PERSONA_TEMPLATES[k];
+    setKind(k);
+    setPersona(next);
+    pushPersona(next);
+  };
+  const patch = (p: Partial<PersonaInput>) => {
+    const next = { ...persona, ...p };
+    setPersona(next);
+    pushPersona(next);
+  };
+
+  const fedHolder = roles["federation"];
+  const iRunFed = fedHolder === me;
+  const fedNodeId = doc?.nodes[0]?.id ?? "";
 
   return (
     <div className="app">
       <header className="masthead">
         <div>
           <h1>commune.ai</h1>
-          <p className="tag">Enter your real situation. See your own life — in the commune vs. now.</p>
+          <p className="tag">Pilot your household. Run an institution. Watch the ecosystem move.</p>
         </div>
-        <button className="share" onClick={share}>
-          {copied ? "Link copied" : "Share this scenario"}
-        </button>
+        <div className="ident">
+          <input value={handle} onChange={(e) => setHandle(e.target.value)} aria-label="your handle" />
+          <span className={`dot ${status}`} title={status} />
+        </div>
       </header>
 
-      {!engineReady && <p className="muted loading">loading engine…</p>}
+      {error && <div className="toast">{error}</div>}
+      {(!engineReady || !doc) && <p className="muted loading">connecting…</p>}
 
-      {engineReady && (
-        <main className="layout">
-          <NodePanel
-            node={scenario.node}
-            enterprise={scenario.enterprise}
-            enterpriseResult={enterpriseResult}
-            laborFloor={scenario.laborFloor}
-            result={nodeResult}
-            onNode={setNode}
-            onEnterprise={setEnterprise}
-            onLaborFloor={setLaborFloor}
-          />
-
-          <section className="personas">
-            <h2>Who comes out ahead</h2>
-            <p className="muted">
-              Each card is one person's actual number. Adjust the node on the left, or edit a
-              person's situation below their card — every figure recomputes live.
-            </p>
-            <div className="persona-grid">
-              {personaResults.map((r, i) => (
-                <PersonaCard
-                  key={scenario.personas[i].kind}
-                  input={scenario.personas[i]}
-                  result={r}
-                  onChange={(patch) => setPersona(i, patch)}
-                />
-              ))}
+      {engineReady && doc && world && (
+        <>
+          <section className="fed-summary">
+            <div><span>Federation</span><b className={world.federation_clears ? "pos" : "neg"}>{world.federation_clears ? "solvent" : "under-capitalized"}</b></div>
+            <div><span>Reserve</span><b>{money(world.reserve)}</b></div>
+            <div><span>Clearing charges</span><b>{money(world.carrying_charges)}</b></div>
+            <div><span>Members</span><b>{doc.players.length}</b></div>
+            <div><span>Nodes</span><b>{doc.nodes.length}</b></div>
+            <div className="fed-role">
+              <span>Federation role (compression, demurrage)</span>
+              <b>{fedHolder ? handleOf(fedHolder) : "unclaimed"}</b>
+              {iRunFed ? (
+                <button className="ghost" onClick={() => send({ t: "release", role: "federation" })}>release</button>
+              ) : !fedHolder ? (
+                <button className="ghost" onClick={() => send({ t: "claim", role: "federation" })}>claim</button>
+              ) : null}
             </div>
           </section>
-        </main>
+
+          <main className="layout">
+            <section className="panel">
+              <h2>{joined ? "Your household" : "Join the simulation"}</h2>
+
+              <label className="select">
+                <span>You are a…</span>
+                <select value={kind} onChange={(e) => changeKind(e.target.value as PersonaKind)}>
+                  {PERSONA_KINDS.map((k) => (
+                    <option key={k} value={k}>{PERSONA_LABELS[k]}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="select">
+                <span>Node</span>
+                <select
+                  value={nodeId}
+                  onChange={(e) => {
+                    setNodeId(e.target.value);
+                    pushPersona(persona, e.target.value);
+                  }}
+                >
+                  {doc.nodes.map((n) => (
+                    <option key={n.id} value={n.id}>{n.name}</option>
+                  ))}
+                </select>
+              </label>
+
+              <NumRow label="Your rent / carry now ($/mo)" value={persona.current_housing_monthly} step={50} onChange={(v) => patch({ current_housing_monthly: v })} />
+              <NumRow label="Hours you'd contribute (hrs/mo)" value={persona.labor_hours_monthly} step={1} onChange={(v) => patch({ labor_hours_monthly: v })} />
+              {kind === "mature_couple" && (
+                <NumRow label="Home equity rolled in ($)" value={persona.home_equity} step={10_000} onChange={(v) => patch({ home_equity: v })} />
+              )}
+              {kind === "young_family" && (
+                <NumRow label="Childcare now ($/mo)" value={persona.childcare_monthly} step={50} onChange={(v) => patch({ childcare_monthly: v })} />
+              )}
+              {kind === "restaurant_owner" && (
+                <NumRow label="Extraction bleed now ($/yr)" value={persona.business_bleed_annual} step={1_000} onChange={(v) => patch({ business_bleed_annual: v })} />
+              )}
+              <NumRow label="Limited-equity buy-in ($)" value={buyin} step={10_000} onChange={(v) => { setBuyin(v); pushPersona(persona, nodeId, v); }} />
+
+              {!joined && (
+                <button className="primary" onClick={() => send({ t: "join", node_id: nodeId, persona, equity_buyin: buyin })}>
+                  Join — capitalize this node
+                </button>
+              )}
+
+              {joined && myEval && (
+                <div className="me-result">
+                  <div className={`net ${myEval.persona.net_annual >= 0 ? "pos" : "neg"}`}>
+                    <span className="net-num">{money(Math.abs(myEval.persona.net_annual))}/yr</span>
+                    <span className="net-word">{myEval.persona.net_annual >= 0 ? "better off" : "worse off"}</span>
+                  </div>
+                  {myEval.persona.equity_built_annual > 0 && (
+                    <div className="equity">+ {money(myEval.persona.equity_built_annual)}/yr portable equity</div>
+                  )}
+                  <Suspense fallback={<div className="chart-skel" style={{ height: 140 }} />}>
+                    <BeforeAfterChart beforeTotal={myEval.persona.before_total} afterTotal={myEval.persona.after_total} better={myEval.persona.net_annual >= 0} />
+                  </Suspense>
+                  <table className="lines">
+                    <tbody>
+                      {myEval.persona.lines.map((l) => (
+                        <tr key={l.label}><td>{l.label}</td><td>{money(l.before)}</td><td>{money(l.after)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {myEval.demurrage > 0 && <p className="muted small">Demurrage on your balance: {money(myEval.demurrage)}/yr</p>}
+                  <p className="muted small">{myEval.persona.note}</p>
+                </div>
+              )}
+            </section>
+
+            <section className="nodes-wrap">
+              <div className="nodes-head">
+                <h2>The federation</h2>
+                <AddNode onAdd={(name) => send({ t: "addNode", name })} />
+              </div>
+              <div className="nodes-grid">
+                {doc.nodes.map((n) => (
+                  <NodeCard
+                    key={n.id}
+                    node={n}
+                    evaluation={world.nodes.find((e) => e.id === n.id)}
+                    roles={roles}
+                    pid={me ?? ""}
+                    holderHandle={handleOf}
+                    send={send}
+                  />
+                ))}
+              </div>
+
+              {iRunFed && (
+                <div className="panel fed-gov">
+                  <h3>Federation dials (you hold this role)</h3>
+                  <p className="muted small">Apply across every node. Compression = the commune↔market labor dial; demurrage kills accumulation.</p>
+                  <NumRow label="Compression floor (CC/hr)" value={doc.nodes[0]?.governance.compression_floor ?? 25} step={1} onChange={(v) => send({ t: "governance", node_id: fedNodeId, field: "compression_floor", value: v })} />
+                  <NumRow label="Demurrage rate (%/yr)" value={Math.round((doc.nodes[0]?.governance.demurrage_rate ?? 0) * 100)} step={1} onChange={(v) => send({ t: "governance", node_id: fedNodeId, field: "demurrage_rate", value: v / 100 })} />
+                </div>
+              )}
+            </section>
+          </main>
+        </>
       )}
 
       <footer className="foot muted">
-        v1 — single node, client-side. Model: <code>model/src/lib.rs</code>. Numbers are scenario
-        inputs, not advice. Federation clearing &amp; saved scenarios come later.
+        Multiplayer sim · one shared world, role-governed, real-time. Engine: <code>model/src/lib.rs</code>.
+        Numbers are scenario inputs, not advice.
       </footer>
+    </div>
+  );
+}
+
+function NumRow({ label, value, step, onChange }: { label: string; value: number; step: number; onChange: (v: number) => void }) {
+  return (
+    <label className="num wide">
+      <span>{label}</span>
+      <input type="number" min={0} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    </label>
+  );
+}
+
+function AddNode({ onAdd }: { onAdd: (name: string) => void }) {
+  const [name, setName] = useState("");
+  return (
+    <div className="add-node">
+      <input placeholder="found a node…" value={name} onChange={(e) => setName(e.target.value)} />
+      <button className="ghost" onClick={() => { if (name.trim()) { onAdd(name.trim()); setName(""); } }}>+ node</button>
     </div>
   );
 }

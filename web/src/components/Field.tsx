@@ -8,6 +8,7 @@ interface FieldProps {
   step: number;
   kind?: Kind;
   hint?: string;
+  disabled?: boolean;
   onChange: (v: number) => void;
 }
 
@@ -17,9 +18,9 @@ function display(value: number, kind: Kind): string {
   return `$${Math.round(value).toLocaleString("en-US")}`;
 }
 
-export function Field({ label, value, min, max, step, kind = "money", hint, onChange }: FieldProps) {
+export function Field({ label, value, min, max, step, kind = "money", hint, disabled, onChange }: FieldProps) {
   return (
-    <label className="field">
+    <label className={`field${disabled ? " field-disabled" : ""}`}>
       <span className="field-head">
         <span className="field-label">{label}</span>
         <span className="field-value">{display(value, kind)}</span>
@@ -30,6 +31,7 @@ export function Field({ label, value, min, max, step, kind = "money", hint, onCh
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
       />
       {hint && <span className="field-hint">{hint}</span>}
